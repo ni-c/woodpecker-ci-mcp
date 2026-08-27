@@ -9,6 +9,7 @@ import { budgetedList, jsonResult, run, textResult } from '../result.js';
 import {
   confirmTokenParam,
   forgeIdParam,
+  httpUrlParam,
   pageParam,
   perPageParam,
 } from '../schema.js';
@@ -38,16 +39,21 @@ const forgeTypeParam = z
   ])
   .describe('Which forge software this is.');
 
-const forgeUrlParam = z
-  .string()
-  .trim()
-  .url()
-  .max(500)
-  .refine(
-    (value) => value.startsWith('https://') || value.startsWith('http://'),
-    'must be an http(s) URL'
-  )
-  .describe('Base URL of the forge, e.g. "https://github.com".');
+const forgeUrlParam = httpUrlParam.describe(
+  'Base URL of the forge, e.g. "https://github.com".'
+);
+
+/**
+ * The public OAuth redirect host.
+ *
+ * Same scheme guard as the forge URL and for the same reason: Woodpecker builds
+ * its OAuth redirect from this value, so a `javascript:` or `file:` URL here is
+ * a scheme this server would have accepted on a caller's say-so.
+ */
+const oauthHostParam = httpUrlParam.describe(
+  'Public URL used for the OAuth redirect, when it differs from "url" — the ' +
+    'usual case for a forge reachable under two names.'
+);
 
 export function registerForgeTools(
   server: McpServer,
@@ -114,16 +120,7 @@ export function registerForgeTools(
           .describe(
             'OAuth client secret. Write-only — Woodpecker never returns it again.'
           ),
-        oauth_host: z
-          .string()
-          .trim()
-          .url()
-          .max(500)
-          .optional()
-          .describe(
-            'Public URL used for the OAuth redirect, when it differs from "url" — ' +
-              'the usual case for a forge reachable under two names.'
-          ),
+        oauth_host: oauthHostParam.optional(),
         skip_verify: z
           .boolean()
           .optional()
@@ -157,7 +154,7 @@ export function registerForgeTools(
         url: forgeUrlParam.optional(),
         client: z.string().trim().min(1).max(500).optional(),
         oauth_client_secret: z.string().min(1).max(1000).optional(),
-        oauth_host: z.string().trim().url().max(500).optional(),
+        oauth_host: oauthHostParam.optional(),
         skip_verify: z.boolean().optional(),
         confirm_token: confirmTokenParam.optional(),
       },

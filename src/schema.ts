@@ -237,3 +237,25 @@ export const confirmTokenParam = z
   .trim()
   .regex(/^[0-9a-f]{32}$/, 'a confirmation token is 32 hexadecimal characters')
   .describe('Token from a previous call of this tool.');
+
+/**
+ * An absolute http(s) URL.
+ *
+ * `z.string().url()` is not this. It only asserts that `new URL()` parses, and
+ * zod 4.4.3 happily accepts `javascript:`, `file:`, `data:` and `ftp:`. That
+ * matters here because the forge URLs are not stored and forgotten — Woodpecker
+ * *fetches* them on every login and every repository read, so a caller-supplied
+ * scheme is a request the server makes on the caller's behalf.
+ */
+export const httpUrlParam = z
+  .string()
+  .trim()
+  .max(500)
+  .refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === 'http:' || url.protocol === 'https:';
+    } catch {
+      return false;
+    }
+  }, 'must be an absolute http:// or https:// URL');
