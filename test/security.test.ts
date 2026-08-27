@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { call, connect, REPO_ID, stubFetch, textOf } from './harness.js';
+import {
+  call,
+  connect,
+  jsonOf,
+  REPO_ID,
+  stubFetch,
+  textOf,
+} from './harness.js';
 
 /**
  * The regressions for findings from the security audit.
@@ -146,5 +153,78 @@ describe('upstream error pages do not reach the model', () => {
     });
     expect(textOf(result)).toContain('(HTML error page omitted)');
     expect(textOf(result)).not.toContain('Bad Gateway from the WAF');
+  });
+});
+
+describe('the 404 hint fits the path it came from', () => {
+  it('explains an unactivated repository for a repository path', async () => {
+    stubFetch({ [`GET /repos/${REPO_ID}`]: { status: 404, text: '' } });
+    const result = await call(await connect(), 'get_repository', {
+      repo_id: REPO_ID,
+    });
+    expect(textOf(result)).toContain('never been activated');
+  });
+
+  it('says nothing about forges for an agent path', async () => {
+    // GET /agents/1/tasks answers 404 on a real instance for an agent with no
+    // tasks; a hint about repositories there sends the reader the wrong way.
+    stubFetch({ 'GET /agents/1/tasks': { status: 404, text: '' } });
+    const result = await call(await connect(), 'list_agent_tasks', {
+      agent_id: 1,
+    });
+    expect(textOf(result)).toContain('No such object on this instance');
+    expect(textOf(result)).not.toContain('forge');
+  });
+});
+
+describe('update_user does not blank the fields it was not given', () => {
+  // PATCH /users/{login} assigns login, email, avatar and admin from the request
+  // unconditionally — a body of just {"admin": true} wipes the rest. Verified
+  // against 3.18.0, which answered {"id": 0, "login": "", "email": ""}.
+  it('reads the account first and sends it back whole', async () => {
+    const stored = {
+      id: 3,
+      login: 'octocat',
+      email: 'octocat@example.com',
+      avatar_url: 'https://forge.example.com/avatars/octocat',
+      admin: false,
+      forge_id: 1,
+      forge_remote_id: '77',
+    };
+    const stub = stubFetch({
+      'GET /users/octocat': { json: stored },
+      'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
+    });
+    await call(await connect(), 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      admin: true,
+    });
+    const patch = stub.calls.find((c) => c.method === 'PATCH');
+    expect(patch?.body).toEqual({
+      login: 'octocat',
+      email: 'octocat@example.com',
+      avatar_url: 'https://forge.example.com/avatars/octocat',
+      admin: true,
+      forge_id: 1,
+      forge_remote_id: '77',
+    });
+  });
+
+  it('reports the stored account rather than the echoed request', async () => {
+    stubFetch({
+      'GET /users/octocat': {
+        json: { id: 3, login: 'octocat', email: 'a@example.com', admin: true },
+      },
+      'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
+    });
+    const result = await call(await connect(), 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      admin: true,
+    });
+    expect(jsonOf(result)).toEqual({
+      user: { id: 3, login: 'octocat', email: 'a@example.com', admin: true },
+    });
   });
 });

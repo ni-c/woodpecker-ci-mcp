@@ -109,8 +109,14 @@ describe('sanitizeErrorBody', () => {
 });
 
 describe('statusHint', () => {
-  it('explains a 404 as a repository that was never activated', () => {
-    expect(statusHint(404)).toContain('never been activated');
+  it('explains a 404 on a repository path as one never activated', () => {
+    expect(statusHint(404, '/repos/21')).toContain('never been activated');
+  });
+
+  it('does not mention forges for a 404 anywhere else', () => {
+    expect(statusHint(404, '/agents/1/tasks')).toBe(
+      'No such object on this instance.'
+    );
   });
 
   it('points a 401 at the token and a 403 at permissions', () => {

@@ -28,7 +28,8 @@ export class WoodpeckerApiError extends Error {
     public readonly status: number,
     public readonly body: string,
     method: string,
-    path: string
+    /** Kept, because the 404 hint reads differently for a repository path. */
+    public readonly path: string
   ) {
     super(`Woodpecker API ${method} ${path} failed with HTTP ${status}`);
     this.name = 'WoodpeckerApiError';

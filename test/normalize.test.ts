@@ -63,6 +63,13 @@ describe('the summaries', () => {
     expect(Object.keys(summary)).not.toContain('secret_extension_endpoint');
   });
 
+  it('keeps forge_remote_id, which activate_repository needs', () => {
+    // An inactive repository has no Woodpecker id yet, so this is the only
+    // handle on it — and list_repositories is where the tool description sends
+    // people to find it.
+    expect(summarizeRepo(repoFixture()).forge_remote_id).toBe('48765432');
+  });
+
   it('shortens a commit to twelve characters and a message to its subject', () => {
     const summary = summarizePipeline(pipelineFixture());
     expect(summary.commit).toBe('01aeae08c59f');

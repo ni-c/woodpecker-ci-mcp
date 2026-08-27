@@ -139,9 +139,10 @@ export function registerUserTools(
       description:
         'Changes an account. Admin only. The one that matters is "admin": granting ' +
         'it gives full control of the instance, including every secret of every ' +
-        'repository.',
+        'repository. Fields you do not pass are preserved.',
       inputSchema: {
         login: loginParam,
+        forge_id: forgeIdQueryParam,
         email: z.string().trim().email().max(500).optional(),
         admin: z
           .boolean()
@@ -152,22 +153,41 @@ export function registerUserTools(
           ),
       },
     },
-    async ({ login, email, admin }) =>
+    async ({ login, forge_id, email, admin }) =>
       run(async () => {
-        const body: Record<string, unknown> = {};
-        if (email !== undefined) body.email = email;
-        if (admin !== undefined) body.admin = admin;
-        if (Object.keys(body).length === 0) {
+        if (email === undefined && admin === undefined) {
           return textResult('Nothing to update — pass email or admin.');
         }
-        return jsonResult({
-          user: summarizeUser(
-            (await api.patch(
-              `/users/${pathSegment(login, 'login')}`,
-              body
-            )) as Record<string, unknown>
-          ),
-        });
+
+        // Read-modify-write, and not for tidiness. `PATCH /users/{login}` is a
+        // PATCH in name only: the handler assigns login, email, avatar and admin
+        // from the request unconditionally, so a body carrying just `{"admin":
+        // true}` blanks the account's login and email — verified against 3.18.0,
+        // where it answered with `{"id": 0, "login": "", "email": ""}`. Sending
+        // the full object, with forge_id and forge_remote_id so the handler's own
+        // lookup finds the right row, is the only way to make it behave like the
+        // partial update its name promises.
+        const current = (await api.get(
+          `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
+        )) as Record<string, unknown>;
+
+        const body: Record<string, unknown> = {
+          login: current.login,
+          email: email ?? current.email,
+          avatar_url: current.avatar_url,
+          admin: admin ?? current.admin ?? false,
+          forge_id: current.forge_id ?? forge_id,
+          forge_remote_id: current.forge_remote_id,
+        };
+
+        await api.patch(`/users/${pathSegment(login, 'login')}`, body);
+
+        // The response to the PATCH is the request echoed back, not the stored
+        // account, so it is read again rather than reported.
+        const updated = (await api.get(
+          `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
+        )) as Record<string, unknown>;
+        return jsonResult({ user: summarizeUser(updated) });
       })
   );
 

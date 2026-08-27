@@ -60,6 +60,15 @@ export function redactAgent(agent: Json): Json {
   };
 }
 
+/**
+ * `forge_remote_id` is in the list on purpose.
+ *
+ * It is the one field `activate_repository` takes, and a repository that is not
+ * activated yet has no Woodpecker id to offer instead — so leaving it out of the
+ * summary made `list_repositories(include_inactive: true)` unable to feed the
+ * only tool that consumes its output. Found by driving the two against a real
+ * instance; the tool description had promised the field for a while by then.
+ */
 export function summarizeRepo(repo: Json): Json {
   return pick(repo, [
     'id',
@@ -72,6 +81,8 @@ export function summarizeRepo(repo: Json): Json {
     'visibility',
     'default_branch',
     'config_file',
+    'forge_id',
+    'forge_remote_id',
     'forge_url',
   ]);
 }

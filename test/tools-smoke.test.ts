@@ -38,6 +38,11 @@ interface Case {
   reply?: { json?: unknown; status?: number; text?: string };
   /** True for the two-step tools: the case runs twice, with the token. */
   guarded?: boolean;
+  /** Extra routes a tool needs beyond the one it is checked against. */
+  alsoRoute?: Record<
+    string,
+    { json?: unknown; status?: number; text?: string }
+  >;
 }
 
 const repo = repoFixture();
@@ -331,9 +336,11 @@ const CASES: Record<string, Case> = {
     reply: { json: user },
   },
   update_user: {
-    args: { login: 'octocat', admin: true },
+    // Reads the account first — see the note on PatchUser in src/tools/users.ts.
+    args: { login: 'octocat', forge_id: 1, admin: true },
     expect: 'PATCH /users/octocat',
     reply: { json: user },
+    alsoRoute: { 'GET /users/octocat?forge_id=1': { json: user } },
   },
   delete_user: {
     args: { login: 'octocat', forge_id: 1 },
@@ -445,6 +452,7 @@ describe('every tool in the catalogue', () => {
       };
       // get_server_info makes a second, root-level call for the health probe.
       if (name === 'get_server_info') routes['GET !/healthz'] = { status: 204 };
+      Object.assign(routes, testCase.alsoRoute ?? {});
 
       const stub = stubFetch(routes);
       const client = await connect();

@@ -181,12 +181,14 @@ export function sanitizeErrorBody(body: string): string {
 /**
  * Turns an upstream status code into the sentence that actually helps.
  *
- * Verified against Woodpecker 3.18.0. The 404 is the one worth spelling out:
- * Woodpecker only knows repositories that were *activated* in it, so a
- * repository that plainly exists in the forge is a 404 here until someone turns
- * it on — and nothing in that answer hints at the difference.
+ * Verified against Woodpecker 3.18.0. The 404 is the one worth spelling out —
+ * Woodpecker only knows repositories that were *activated* in it, so one that
+ * plainly exists in the forge is a 404 here until someone turns it on — but only
+ * for a repository path. `GET /agents/1/tasks` answering 404 has nothing to do
+ * with forges, and a hint that talks about them there sends the reader in
+ * exactly the wrong direction, which is how this parameter came to exist.
  */
-export function statusHint(status: number): string {
+export function statusHint(status: number, path = ''): string {
   switch (status) {
     case 400:
       return (
@@ -209,11 +211,11 @@ export function statusHint(status: number): string {
         'administrator. get_current_user reports which account the token belongs to.'
       );
     case 404:
-      return (
-        'No such object — or, for a repository, one that exists in the forge but ' +
-        'has never been activated in Woodpecker. lookup_repository resolves an ' +
-        'owner/name pair to an id, and activate_repository turns a repository on.'
-      );
+      return path.startsWith('/repos')
+        ? 'No such object — or a repository that exists in the forge but has ' +
+            'never been activated in Woodpecker. lookup_repository resolves an ' +
+            'owner/name pair to an id, and activate_repository turns a repository on.'
+        : 'No such object on this instance.';
     case 409:
       return 'The object already exists, or is not in a state that allows this.';
     case 422:
@@ -234,7 +236,7 @@ export async function run(
     return await fn();
   } catch (error) {
     if (error instanceof WoodpeckerApiError) {
-      const hint = statusHint(error.status);
+      const hint = statusHint(error.status, error.path);
       return errorResult(
         `${error.message}\n${sanitizeErrorBody(error.body)}${hint ? `\nHint: ${hint}` : ''}`
       );

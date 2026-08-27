@@ -215,6 +215,26 @@ describe('optional arguments reach the API', () => {
     expect(textOf(result)).toContain('Nothing to update');
   });
 
+  it('merges an email change into the account it read first', async () => {
+    const stub = stubFetch({
+      'GET /users/octocat': {
+        json: { login: 'octocat', email: 'old@example.com', admin: true },
+      },
+      'PATCH /users/octocat': { json: {} },
+    });
+    await call(await connect(), 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      email: 'new@example.com',
+    });
+    const patch = stub.calls.find((c) => c.method === 'PATCH');
+    // admin was not passed, so it has to survive from the stored account.
+    expect(patch?.body).toMatchObject({
+      email: 'new@example.com',
+      admin: true,
+    });
+  });
+
   it('sends email and admin when creating a user', async () => {
     const stub = stubFetch({ 'POST /users': { json: {} } });
     await call(await connect(), 'create_user', {
@@ -233,6 +253,7 @@ describe('optional arguments reach the API', () => {
     stubFetch({});
     const result = await call(await connect(), 'update_user', {
       login: 'octocat',
+      forge_id: 1,
     });
     expect(textOf(result)).toContain('Nothing to update');
   });

@@ -46,6 +46,15 @@ const scheduleParam = z
       '@hourly), or "@every <duration>" such as "@every 30m". No seconds field.'
   );
 
+/**
+ * The schedule's time zone.
+ *
+ * Woodpecker resolves it with Go's `time.LoadLocation`, which reads the system
+ * zoneinfo database — and the official `woodpeckerci/woodpecker-server` image is
+ * distroless and ships none. On a stock Docker install, anything but `UTC` comes
+ * back as `can't parse timezone: unknown time zone Europe/Berlin`, which reads
+ * like a typo rather than a missing file. Verified against 3.18.0 on 2026-08-27.
+ */
 const timezoneParam = z
   .string()
   .trim()
@@ -55,7 +64,12 @@ const timezoneParam = z
     /^[A-Za-z0-9_+\-/]+$/,
     'must be an IANA time zone name such as "Europe/Berlin"'
   )
-  .describe('IANA time zone the schedule is interpreted in. Defaults to UTC.');
+  .describe(
+    'IANA time zone the schedule is interpreted in. Defaults to UTC. Note that ' +
+      'the official Woodpecker container image carries no time zone database, so ' +
+      'on a stock Docker deployment anything but "UTC" is rejected with "unknown ' +
+      'time zone" — that is the server missing tzdata, not a wrong name.'
+  );
 
 export function registerCronTools(
   server: McpServer,
