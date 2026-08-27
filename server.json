@@ -1,0 +1,107 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.ni-c/woodpecker-ci-mcp",
+  "title": "Woodpecker CI",
+  "description": "Read Woodpecker CI repositories, pipelines and logs, and drive builds, secrets and crons",
+  "websiteUrl": "https://woodpecker-ci-mcp.ni-c.de",
+  "repository": {
+    "url": "https://github.com/ni-c/woodpecker-ci-mcp",
+    "source": "github"
+  },
+  "version": "0.1.0",
+  "packages": [
+    {
+      "registryType": "npm",
+      "identifier": "@ni-c/woodpecker-ci-mcp",
+      "version": "0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "WOODPECKER_URL",
+          "description": "Root URL of the Woodpecker server, e.g. https://woodpecker.example.com",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_TOKEN",
+          "description": "Personal access token from the Woodpecker user settings",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_READ_ONLY",
+          "description": "Set to true to register only the read tools (default: false)",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "name": "WOODPECKER_ALLOW_TOOLS",
+          "description": "Comma-separated tool names or list_* prefixes to register; 'essential' selects a curated preset (default: all tools)",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_DENY_TOOLS",
+          "description": "Comma-separated tool names or list_* prefixes to remove from whatever the allow list left",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_INSECURE_TLS",
+          "description": "Set to true to accept a self-signed certificate from the Woodpecker server (default: false)",
+          "isRequired": false,
+          "format": "boolean"
+        }
+      ]
+    },
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/ni-c/woodpecker-ci-mcp:0.1.0",
+      "transport": {
+        "type": "stdio"
+      },
+      "environmentVariables": [
+        {
+          "name": "WOODPECKER_URL",
+          "description": "Root URL of the Woodpecker server, e.g. https://woodpecker.example.com",
+          "isRequired": true,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_TOKEN",
+          "description": "Personal access token from the Woodpecker user settings",
+          "isRequired": true,
+          "isSecret": true,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_READ_ONLY",
+          "description": "Set to true to register only the read tools (default: false)",
+          "isRequired": false,
+          "format": "boolean"
+        },
+        {
+          "name": "WOODPECKER_ALLOW_TOOLS",
+          "description": "Comma-separated tool names or list_* prefixes to register; 'essential' selects a curated preset (default: all tools)",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_DENY_TOOLS",
+          "description": "Comma-separated tool names or list_* prefixes to remove from whatever the allow list left",
+          "isRequired": false,
+          "format": "string"
+        },
+        {
+          "name": "WOODPECKER_INSECURE_TLS",
+          "description": "Set to true to accept a self-signed certificate from the Woodpecker server (default: false)",
+          "isRequired": false,
+          "format": "boolean"
+        }
+      ]
+    }
+  ]
+}
