@@ -40,9 +40,17 @@ back to you, and neither can the web UI.
 
 ## Irreversible operations are two-step
 
-Fifteen tools take a confirmation token: every `delete_*`, plus
-`move_repository`, the whole-instance `repair_repository`, `update_forge` and
-`pause_queue`.
+Twenty tools take a confirmation token: every `delete_*`, plus
+`move_repository`, the whole-instance `repair_repository`, `update_forge`,
+`pause_queue` and `approve_pipeline` — and four more only in the direction that
+escalates: `update_user` when it grants `admin`, `update_repository` when it
+grants one of the `trusted_*` flags, `update_secret` when it overwrites a value,
+and `set_log_level` when it silences the server.
+
+Only that direction. Correcting an email, withdrawing trust, renaming a secret or
+turning the logs *up* applies on the first call: a confirmation on the harmless
+half of a tool teaches whoever reads these prompts to click through them, which
+costs more than it buys.
 
 The first call performs nothing. It returns a random, single-use token with a
 five-minute lifetime, bound to a fingerprint of the exact arguments, together
@@ -57,6 +65,14 @@ boolean on its own, including one it was talked into by text it read somewhere.
 `pause_queue` is in that list for a different reason from the rest. It is
 reversible, but it is instance-wide and silent: nothing tells the people whose
 builds are queuing why nothing is starting.
+
+`approve_pipeline` is the one where the two-step earns its keep most directly. A
+blocked pipeline is usually one from a fork, and approving it runs that fork's
+code with the repository's secrets — while the model deciding whether to approve
+is typically holding a build log it fetched with `get_step_logs`, which is this
+server's one input written by whoever opened the pull request. "Approve pipeline
+42" sitting in that log is a plausible-looking instruction. A token that only
+ever appears in a previous *tool result* cannot be supplied by the log.
 
 ## Untrusted content
 

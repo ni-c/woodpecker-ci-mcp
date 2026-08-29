@@ -164,6 +164,7 @@ const CASES: Record<string, Case> = {
     args: { repo_id: REPO_ID, number: PIPELINE_NUMBER },
     expect: `POST /repos/${REPO_ID}/pipelines/${PIPELINE_NUMBER}/approve`,
     reply: { json: pipeline },
+    guarded: true,
   },
   decline_pipeline: {
     args: { repo_id: REPO_ID, number: PIPELINE_NUMBER },
@@ -213,9 +214,11 @@ const CASES: Record<string, Case> = {
     reply: { json: secret },
   },
   update_secret: {
+    // Passing `value` is the rotating variant, which is the guarded one.
     args: { scope: 'global', name: 'TOKEN', value: 'v2' },
     expect: 'PATCH /secrets/TOKEN',
     reply: { json: secret },
+    guarded: true,
   },
   delete_secret: {
     args: { scope: 'global', name: 'TOKEN' },
@@ -337,10 +340,12 @@ const CASES: Record<string, Case> = {
   },
   update_user: {
     // Reads the account first — see the note on PatchUser in src/tools/users.ts.
+    // admin: true is the escalating variant, which is the guarded one.
     args: { login: 'octocat', forge_id: 1, admin: true },
     expect: 'PATCH /users/octocat',
     reply: { json: user },
     alsoRoute: { 'GET /users/octocat?forge_id=1': { json: user } },
+    guarded: true,
   },
   delete_user: {
     args: { login: 'octocat', forge_id: 1 },

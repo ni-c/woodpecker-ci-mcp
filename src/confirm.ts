@@ -81,6 +81,36 @@ export function setResourceKey(operation: string, targets: string[]): string {
 }
 
 /**
+ * The one shape a confirmation may interpolate: a bare identifier.
+ *
+ * Three tools name their target in the confirmation text -- a secret name, a
+ * login, a registry address. They are safe today because their input schemas
+ * are narrow, which is an invariant held two files away from the string it
+ * protects. This is that invariant, enforced where the interpolation happens:
+ * whitespace or a quote means the value is not an identifier, and a
+ * confirmation a model reads is the wrong place to find that out gently.
+ */
+export function identifier(value: string, role: string): string {
+  // eslint-disable-next-line no-control-regex
+  if (/[\s\u0000-\u001f\u007f"'`]/.test(value)) {
+    throw new Error(
+      `woodpecker-ci-mcp: refusing to name a ${role} containing whitespace or quotes in a confirmation prompt`
+    );
+  }
+  return value;
+}
+
+/** Author-written prose is single-line by construction; prove it stayed that way. */
+function assertSingleLine(fragment: string, role: string): void {
+  // eslint-disable-next-line no-control-regex
+  if (/[\u0000-\u001f\u007f]/.test(fragment)) {
+    throw new Error(
+      `woodpecker-ci-mcp: refusing to build a confirmation whose ${role} contains a control character`
+    );
+  }
+}
+
+/**
  * Builds the text returned by the first call of a guarded tool.
  *
  * Note what is NOT in here: no name, description or tag coming from the API.
@@ -93,6 +123,8 @@ export function confirmationPrompt(
   token: string,
   ttlMinutes: number
 ): string {
+  assertSingleLine(what, 'subject');
+  assertSingleLine(consequence, 'consequence');
   return (
     `This will ${what}. ${consequence}\n\n` +
     `To proceed, call ${toolName} again with the same arguments plus ` +

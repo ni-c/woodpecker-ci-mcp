@@ -61,6 +61,64 @@ export function redactAgent(agent: Json): Json {
 }
 
 /**
+ * Field names that must never reach the model, whatever object they turn up in.
+ *
+ * `redactAgent` covers the one leak that is documented and reproducible today.
+ * This covers the ones that are not: Woodpecker's Go models decide field by
+ * field what is serialized, a forge addon or a reverse proxy can reshape a body,
+ * and every `get_*` tool here hands its response straight through. Matching on
+ * the name rather than on the endpoint means a field that starts being returned
+ * after an upstream bump is redacted the day it appears, not the day someone
+ * notices.
+ *
+ * Deliberately not on the list: a bare `value`. It is the natural name for any
+ * key/value pair — pipeline variables, cron metadata — and redacting it would
+ * damage far more legitimate data than it protects. Woodpecker's secret `value`
+ * is stripped where secrets are actually handled, in `tools/secrets.ts`.
+ */
+const SENSITIVE_KEYS = new Set([
+  'token',
+  'access_token',
+  'refresh_token',
+  'client_secret',
+  'clientsecret',
+  'password',
+  'private_key',
+  'privatekey',
+  'secret_key',
+  'session_secret',
+  'api_key',
+  'apikey',
+  'totp_secret',
+]);
+
+export const REDACTED = '(redacted by woodpecker-ci-mcp)';
+
+/**
+ * Replaces credential-shaped fields anywhere in a response.
+ *
+ * Replaced, not deleted, for the same reason `redactAgent` replaces: an absent
+ * field reads as "there is no such credential", which sends the reader looking
+ * for a bug that is not there. Values that are already a redaction marker, and
+ * non-string values, are left alone.
+ */
+export function redactSensitive<T>(data: T): T {
+  if (Array.isArray(data)) {
+    return data.map((entry) => redactSensitive(entry)) as T;
+  }
+  if (data === null || typeof data !== 'object') return data;
+  const result: Json = {};
+  for (const [key, value] of Object.entries(data as Json)) {
+    if (SENSITIVE_KEYS.has(key.toLowerCase()) && typeof value === 'string') {
+      result[key] = value.startsWith('(redacted') ? value : REDACTED;
+      continue;
+    }
+    result[key] = redactSensitive(value);
+  }
+  return result as T;
+}
+
+/**
  * `forge_remote_id` is in the list on purpose.
  *
  * It is the one field `activate_repository` takes, and a repository that is not

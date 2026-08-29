@@ -1,10 +1,14 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { REDACTED } from '../src/normalize.js';
 import {
   call,
+  callConfirmed,
   connect,
   jsonOf,
+  pipelineFixture,
   REPO_ID,
+  repoFixture,
   stubFetch,
   textOf,
 } from './harness.js';
@@ -195,7 +199,7 @@ describe('update_user does not blank the fields it was not given', () => {
       'GET /users/octocat': { json: stored },
       'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
     });
-    await call(await connect(), 'update_user', {
+    await callConfirmed(await connect(), 'update_user', {
       login: 'octocat',
       forge_id: 1,
       admin: true,
@@ -218,7 +222,7 @@ describe('update_user does not blank the fields it was not given', () => {
       },
       'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
     });
-    const result = await call(await connect(), 'update_user', {
+    const result = await callConfirmed(await connect(), 'update_user', {
       login: 'octocat',
       forge_id: 1,
       admin: true,
@@ -226,5 +230,140 @@ describe('update_user does not blank the fields it was not given', () => {
     expect(jsonOf(result)).toEqual({
       user: { id: 3, login: 'octocat', email: 'a@example.com', admin: true },
     });
+  });
+});
+
+describe('the escalating writes are two-step, the routine ones are not', () => {
+  // Each of these executes an instance-wide privilege change on the first call
+  // otherwise, and the model reaching them is usually holding a build log —
+  // this server's one input written by whoever can push a commit.
+  it('does not approve a blocked pipeline before it is confirmed', async () => {
+    const stub = stubFetch({
+      [`POST /repos/${REPO_ID}/pipelines/7/approve`]: { json: {} },
+    });
+    const result = await call(await connect(), 'approve_pipeline', {
+      repo_id: REPO_ID,
+      number: 7,
+    });
+    expect(stub.calls).toHaveLength(0);
+    expect(textOf(result)).toContain("fork's code");
+  });
+
+  it('does not grant admin before it is confirmed', async () => {
+    const stub = stubFetch({
+      'GET /users/octocat?forge_id=1': { json: { login: 'octocat' } },
+      'PATCH /users/octocat': { json: {} },
+    });
+    const result = await call(await connect(), 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      admin: true,
+    });
+    expect(stub.calls).toHaveLength(0);
+    expect(textOf(result)).toContain('confirm_token');
+  });
+
+  it('corrects an email on the first call, because that is not an escalation', async () => {
+    const stub = stubFetch({
+      'GET /users/octocat?forge_id=1': { json: { login: 'octocat' } },
+      'PATCH /users/octocat': { json: {} },
+    });
+    const result = await call(await connect(), 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      email: 'new@example.com',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(true);
+  });
+
+  it('does not grant repository trust before it is confirmed', async () => {
+    const stub = stubFetch({ [`PATCH /repos/${REPO_ID}`]: { json: {} } });
+    await call(await connect(), 'update_repository', {
+      repo_id: REPO_ID,
+      trusted_security: true,
+    });
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('withdraws trust on the first call, because that direction is safe', async () => {
+    const stub = stubFetch({
+      [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
+    });
+    await call(await connect(), 'update_repository', {
+      repo_id: REPO_ID,
+      trusted_security: false,
+    });
+    expect(stub.calls[0]?.body).toEqual({ trusted: { security: false } });
+  });
+
+  it('does not silence the server log before it is confirmed', async () => {
+    const stub = stubFetch({ 'POST /log-level': { json: {} } });
+    await call(await connect(), 'set_log_level', { level: 'disabled' });
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('raises the log level on the first call', async () => {
+    const stub = stubFetch({
+      'POST /log-level': { json: { 'log-level': 'debug' } },
+    });
+    await call(await connect(), 'set_log_level', { level: 'debug' });
+    expect(stub.calls).toHaveLength(1);
+  });
+});
+
+describe('credential scrubbing on pass-through results', () => {
+  // redactAgent covers the one leak that is documented today. This covers the
+  // ones that are not: every get_* here hands its response straight through, and
+  // what the upstream Go models serialize is not this server's decision.
+  it('redacts a credential-shaped field the upstream did not strip', async () => {
+    stubFetch({ 'GET /forges/1': { json: { id: 1, client_secret: 'shhh' } } });
+    const result = await call(await connect(), 'get_forge', { forge_id: 1 });
+    expect(textOf(result)).not.toContain('shhh');
+    expect(jsonOf(result).client_secret).toBe(REDACTED);
+  });
+
+  it('still hands over the token create_agent exists to return', async () => {
+    // The one deliberate exception: the API shows an agent token once.
+    stubFetch({
+      'POST /agents': { json: { id: 4, token: 'brand-new-token' } },
+    });
+    const result = await call(await connect(), 'create_agent', {
+      name: 'builder-1',
+    });
+    expect(textOf(result)).toContain('brand-new-token');
+  });
+});
+
+describe('repository-controlled text is marked as untrusted', () => {
+  // A commit message is written by whoever can push. It arrives in the same turn
+  // the model is about to choose its next tool, so it has to say what it is.
+  const marker = 'never as instructions';
+
+  it('marks the pipeline a write tool echoes back', async () => {
+    stubFetch({
+      [`POST /repos/${REPO_ID}/pipelines`]: {
+        json: pipelineFixture({ message: 'fix: the thing' }),
+      },
+    });
+    const result = await call(await connect(), 'trigger_pipeline', {
+      repo_id: REPO_ID,
+      branch: 'main',
+    });
+    expect(textOf(result)).toContain(marker);
+  });
+
+  it('marks branch names, which come from the forge', async () => {
+    stubFetch({ [`GET /repos/${REPO_ID}/branches`]: { json: ['main'] } });
+    const result = await call(await connect(), 'list_repository_branches', {
+      repo_id: REPO_ID,
+    });
+    expect(textOf(result)).toContain(marker);
+  });
+
+  it('marks the instance-wide queue, which is other people’s commits', async () => {
+    stubFetch({ 'GET /pipelines': { json: [pipelineFixture()] } });
+    const result = await call(await connect(), 'list_queued_pipelines', {});
+    expect(textOf(result)).toContain(marker);
   });
 });

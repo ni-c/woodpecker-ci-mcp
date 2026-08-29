@@ -184,20 +184,20 @@ parameters.
 
 ### Repositories
 
-| Tool                         | Description                                                     |
-| ---------------------------- | --------------------------------------------------------------- |
-| `list_repositories`          | Repositories, optionally including ones not yet activated       |
-| `get_repository`             | One repository with all its Woodpecker settings                 |
-| `lookup_repository`          | Turns `owner/name` into the id every other tool takes           |
-| `get_repository_permissions` | What this account may do here — answers "why that 403"          |
-| `list_repository_branches`   | Branches, as Woodpecker sees them in the forge                  |
-| `list_pull_requests`         | Open pull requests and their index                              |
-| `activate_repository`        | Turns Woodpecker on for a forge repository                      |
-| `update_repository`          | Config file, timeout, visibility, approval mode, trusted flags  |
-| `repair_repository` 👤       | Re-installs the webhook; 👤 only for the whole-instance variant |
-| `move_repository` 👤         | Follows a repository that moved in the forge                    |
-| `chown_repository`           | Takes ownership, so the token Woodpecker uses is yours          |
-| `delete_repository` 👤       | Removes it from Woodpecker with all its history                 |
+| Tool                         | Description                                                        |
+| ---------------------------- | ------------------------------------------------------------------ |
+| `list_repositories`          | Repositories, optionally including ones not yet activated          |
+| `get_repository`             | One repository with all its Woodpecker settings                    |
+| `lookup_repository`          | Turns `owner/name` into the id every other tool takes              |
+| `get_repository_permissions` | What this account may do here — answers "why that 403"             |
+| `list_repository_branches`   | Branches, as Woodpecker sees them in the forge                     |
+| `list_pull_requests`         | Open pull requests and their index                                 |
+| `activate_repository`        | Turns Woodpecker on for a forge repository                         |
+| `update_repository` 👤       | Config file, timeout, visibility, approval mode; 👤 to grant trust |
+| `repair_repository` 👤       | Re-installs the webhook; 👤 only for the whole-instance variant    |
+| `move_repository` 👤         | Follows a repository that moved in the forge                       |
+| `chown_repository`           | Takes ownership, so the token Woodpecker uses is yours             |
+| `delete_repository` 👤       | Removes it from Woodpecker with all its history                    |
 
 ### Pipelines and logs
 
@@ -212,7 +212,7 @@ parameters.
 | `trigger_pipeline`      | Starts a pipeline on a branch                                |
 | `restart_pipeline`      | Runs an existing one again, at the same commit               |
 | `cancel_pipeline`       | Stops a pending or running pipeline                          |
-| `approve_pipeline`      | Releases a blocked one — read what you are approving         |
+| `approve_pipeline` 👤   | Releases a blocked one — it runs fork code with your secrets |
 | `decline_pipeline`      | Refuses a blocked one                                        |
 | `delete_pipeline` 👤    | Deletes a pipeline and its logs                              |
 | `delete_step_logs` 👤   | Deletes one step's output — for when a step printed a secret |
@@ -227,7 +227,7 @@ parameters.
 | `list_secrets`       | Secrets at one level. Values are never returned by Woodpecker |
 | `get_secret`         | One secret's events, images and note                          |
 | `create_secret`      | Creates one. At least one event is required                   |
-| `update_secret`      | Rotates the value, or replaces the event and image lists      |
+| `update_secret` 👤   | Rotates the value (👤), or replaces the event and image lists |
 | `delete_secret` 👤   | Deletes one; pipelines using it run without it                |
 | `list_registries`    | Container registry credentials at one level                   |
 | `get_registry`       | One entry. The password is stripped by Woodpecker             |
@@ -255,7 +255,7 @@ parameters.
 | `list_users` 🛡                 | Accounts that have ever logged in                            |
 | `get_user` 🛡                   | One account — `forge_id` is required                         |
 | `create_user` 🛡                | Pre-creates a record, e.g. to grant admin before first login |
-| `update_user` 🛡                | Changes email or the admin flag                              |
+| `update_user` 🛡👤              | Changes email; 👤 to grant admin                             |
 | `delete_user` 🛡👤              | Removes an account — transfer its repositories first         |
 | `list_agents` 🛡                | Build agents, with tokens redacted                           |
 | `get_agent` 🛡                  | One agent, token redacted                                    |
@@ -273,7 +273,7 @@ parameters.
 | `get_log_level` 🛡              | Current server log level                                     |
 | `pause_queue` 🛡👤              | Stops scheduling for the whole instance                      |
 | `resume_queue` 🛡               | Starts it again                                              |
-| `set_log_level` 🛡              | Changes the log level without a restart                      |
+| `set_log_level` 🛡👤            | Changes it; 👤 to silence the server                         |
 
 ## Not exposed, on purpose
 
@@ -292,11 +292,15 @@ parameters.
 
 ## Safety
 
-- **Fifteen operations are two-step.** Every `delete_*`, plus `move_repository`,
-  the whole-instance `repair_repository`, `update_forge` and `pause_queue`. The
-  first call returns a short-lived confirmation token bound to those exact
-  arguments; only a second call carrying it acts. A token for one repository is
-  not a token for another, and a token for one tool is not a token for another.
+- **Twenty operations are two-step.** Every `delete_*`, plus `move_repository`,
+  the whole-instance `repair_repository`, `update_forge`, `pause_queue` and
+  `approve_pipeline` — and four more only in the direction that escalates:
+  `update_user` granting `admin`, `update_repository` granting a `trusted_*`
+  flag, `update_secret` overwriting a value, and `set_log_level` silencing the
+  server. The first call returns a short-lived confirmation token bound to those
+  exact arguments; only a second call carrying it acts. A token for one
+  repository is not a token for another, and a token for one tool is not a token
+  for another.
 - **Agent tokens are redacted on read** — see above. `create_agent` is the
   exception, by necessity.
 - **Secret values and registry passwords are never returned**, and not because

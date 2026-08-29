@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   call,
+  callConfirmed,
   connect,
   jsonOf,
   logLine,
@@ -91,7 +92,9 @@ describe('update_repository', () => {
     const stub = stubFetch({
       [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
     });
-    await call(await connect(), 'update_repository', {
+    // Granting trust is two-step; the fold into `trusted` happens on the
+    // second call, which is the one that reaches the API.
+    await callConfirmed(await connect(), 'update_repository', {
       repo_id: REPO_ID,
       trusted_network: true,
     });

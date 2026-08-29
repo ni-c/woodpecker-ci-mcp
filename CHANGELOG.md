@@ -54,6 +54,38 @@ pushed.
 - The access token is deleted from the environment after start-up, never sent to
   a redirect target, and never echoed into an error message.
 - Results are budgeted: list results drop whole entries rather than overflowing
-  the model's context, and logs are capped separately and far lower.
+  the model's context, and logs are capped separately and far lower. Single
+  objects are budgeted too, by shortening the longest text anywhere in the tree
+  and then dropping entries from the longest list, so an oversized answer comes
+  back smaller rather than not at all.
+- **Twenty operations are two-step**, not fifteen. `approve_pipeline` joined them
+  outright — a blocked pipeline is usually one from a fork, approving it runs
+  that fork's code with the repository's secrets, and the model deciding whether
+  to approve is typically holding a build log written by whoever opened the pull
+  request. Four more are two-step only in the direction that escalates:
+  `update_user` granting `admin`, `update_repository` granting a `trusted_*`
+  flag, `update_secret` overwriting a value that cannot be recovered, and
+  `set_log_level` silencing the server. The reverse of each, and every other
+  field, still applies on the first call.
+- **Credential-shaped fields are scrubbed from every pass-through result**, not
+  just the agent token that is known to leak today. Which fields Woodpecker's Go
+  models serialize is not this server's decision, and a forge addon or a reverse
+  proxy can reshape a body; a field named `password`, `client_secret`,
+  `private_key` or `token` is now redacted wherever it appears. `create_agent` is
+  the one deliberate exception.
+- **Build output is stripped of terminal control sequences.** A step's stdout is
+  whatever its container wrote — ANSI colour, cursor movement, progress bars that
+  rewrite their own line, and sometimes raw binary. None of it survives as
+  meaning in a JSON result, all of it costs budget, and the escape sequences are
+  a rendering vector in whatever terminal displays the answer.
+- The invariant that no attacker-controlled prose reaches a confirmation prompt
+  is now enforced where the interpolation happens, rather than resting on three
+  input-schema regexes two files away.
+- Repository-controlled text carries the untrusted-content marker in every result
+  that returns it, including the pipeline echoed back by `trigger_pipeline`,
+  `restart_pipeline`, `approve_pipeline`, `decline_pipeline` and `run_cron`, the
+  instance-wide pipeline queue, and forge branch names.
+- The fatal-error handler prints the message and stack rather than the error
+  object, whose `cause` chain can carry the failed request's headers.
 
 <!-- #endregion changelog -->

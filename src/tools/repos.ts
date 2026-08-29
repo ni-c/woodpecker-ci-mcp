@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { pathSegment, query } from '../api.js';
 import { guarded } from '../guard.js';
@@ -166,6 +167,7 @@ export function registerRepoTools(
         );
         return budgetedList('branches', listOf(branches, 'branches'), {
           narrowWith: 'Page through with "page".',
+          untrusted: true,
         });
       })
   );
@@ -312,6 +314,12 @@ export function registerRepoTools(
             'Admin only: allow privileged containers. This lets a pipeline take ' +
               'over the agent host.'
           ),
+        confirm_token: confirmTokenParam
+          .optional()
+          .describe(
+            'Required only when granting one of the trusted_* flags; every other ' +
+              'field applies on the first call.'
+          ),
       },
     },
     async ({
@@ -319,6 +327,7 @@ export function registerRepoTools(
       trusted_network,
       trusted_volumes,
       trusted_security,
+      confirm_token,
       ...fields
     }) =>
       run(async () => {
@@ -338,8 +347,38 @@ export function registerRepoTools(
               'current values.'
           );
         }
-        return budgetedJsonResult(
-          objectOf(await api.patch(`/repos/${repo_id}`, body), 'repository')
+
+        const apply = async (): Promise<CallToolResult> =>
+          budgetedJsonResult(
+            objectOf(await api.patch(`/repos/${repo_id}`, body), 'repository')
+          );
+
+        // Only *granting* trust is two-step. These three flags let a pipeline of
+        // this repository take the host network, mount arbitrary host paths and
+        // run privileged containers — which is the agent host, not just the
+        // repository. Withdrawing trust, and every other field, applies straight
+        // away: a confirmation on the safe direction is noise.
+        const granted = Object.entries(trusted)
+          .filter(([, value]) => value)
+          .map(([key]) => key);
+        if (granted.length === 0) return apply();
+
+        return guarded(
+          confirmations,
+          {
+            tool: 'update_repository',
+            targets: [
+              String(repo_id),
+              ...granted.map((key) => `trusted:${key}`),
+            ],
+            what: `grant repository ${repo_id} elevated trust (${granted.join(', ')})`,
+            consequence:
+              'Pipelines of this repository may then use the host network, mount ' +
+              'host paths and run privileged containers. Anyone who can push to ' +
+              'it can take over the agent that runs it.',
+            confirmToken: confirm_token,
+          },
+          apply
         );
       })
   );

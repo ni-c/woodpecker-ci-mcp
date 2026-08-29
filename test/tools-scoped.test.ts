@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ScopeError, scopeBase } from '../src/tools/scope.js';
 import {
   call,
+  callConfirmed,
   connect,
   jsonOf,
   REPO_ID,
@@ -111,7 +112,8 @@ describe('secrets', () => {
     const stub = stubFetch({
       [`PATCH /repos/${REPO_ID}/secrets/DEPLOY_KEY`]: { json: secretFixture },
     });
-    await call(await connect(), 'update_secret', {
+    // Rotating the value is two-step, like deleting the secret.
+    await callConfirmed(await connect(), 'update_secret', {
       scope: 'repository',
       repo_id: REPO_ID,
       name: 'DEPLOY_KEY',

@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { pathSegment, query } from '../api.js';
+import { identifier } from '../confirm.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -164,11 +166,28 @@ export function registerSecretTools(
           ),
         images: imagesParam.optional(),
         note: noteParam.optional(),
+        confirm_token: confirmTokenParam
+          .optional()
+          .describe(
+            'Required only when passing "value"; changing events, images or the ' +
+              'note applies on the first call.'
+          ),
       },
     },
-    async ({ scope, repo_id, org_id, name, value, events, images, note }) =>
+    async ({
+      scope,
+      repo_id,
+      org_id,
+      name,
+      value,
+      events,
+      images,
+      note,
+      confirm_token,
+    }) =>
       run(async () => {
         const base = scopeBase('secrets', scope, { repo_id, org_id });
+        const where = scopeLabel(scope, { repo_id, org_id });
         const body: Record<string, unknown> = {};
         if (value !== undefined) body.value = value;
         if (events !== undefined) body.events = events;
@@ -179,11 +198,40 @@ export function registerSecretTools(
             'Nothing to update — pass value, events, images or note.'
           );
         }
-        const updated = await api.patch(
-          `${base}/${pathSegment(name, 'secret name')}`,
-          body
+
+        const apply = async (): Promise<CallToolResult> => {
+          const updated = await api.patch(
+            `${base}/${pathSegment(name, 'secret name')}`,
+            body
+          );
+          return jsonResult({ secret: updated });
+        };
+
+        // Rotating the value is guarded for the same reason deleting the secret
+        // is: the old value was never readable through the API, so overwriting
+        // it destroys it just as completely. Editing the events or the note is
+        // reversible and applies straight away.
+        if (value === undefined) return apply();
+
+        return guarded(
+          confirmations,
+          {
+            tool: 'update_secret',
+            targets: [
+              scope,
+              String(repo_id ?? ''),
+              String(org_id ?? ''),
+              name,
+              'value',
+            ],
+            what: `overwrite the value of the secret "${identifier(name, 'secret name')}" of ${where}`,
+            consequence:
+              'The current value cannot be recovered — it was never readable ' +
+              'through the API. Pipelines pick up the new one on their next run.',
+            confirmToken: confirm_token,
+          },
+          apply
         );
-        return jsonResult({ secret: updated });
       })
   );
 
@@ -211,7 +259,7 @@ export function registerSecretTools(
           {
             tool: 'delete_secret',
             targets: [scope, String(repo_id ?? ''), String(org_id ?? ''), name],
-            what: `delete the secret "${name}" of ${where}`,
+            what: `delete the secret "${identifier(name, 'secret name')}" of ${where}`,
             consequence:
               'The value cannot be recovered — it was never readable through the ' +
               'API. Pipelines using it will run without it.',

@@ -5,7 +5,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { query } from '../api.js';
 import { guarded } from '../guard.js';
 import { listOf, redactAgent } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import {
+  budgetedList,
+  jsonResult,
+  rawJsonResult,
+  run,
+  textResult,
+} from '../result.js';
 import {
   agentIdParam,
   confirmTokenParam,
@@ -163,7 +169,10 @@ export function registerAgentTools(
         const body: Record<string, unknown> = { name };
         if (no_schedule !== undefined) body.no_schedule = no_schedule;
         if (custom_labels !== undefined) body.custom_labels = custom_labels;
-        return jsonResult({
+        // The one deliberate exception to the credential scrubber in
+        // `jsonResult`: this tool exists to hand over the token, and the API
+        // shows it exactly once.
+        return rawJsonResult({
           agent: await api.post(base, body),
           note:
             'The token above is shown so it can be configured on the agent host. ' +

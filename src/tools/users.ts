@@ -1,8 +1,10 @@
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { pathSegment, query } from '../api.js';
+import { identifier } from '../confirm.js';
 import { guarded } from '../guard.js';
 import { listOf, summarizeUser } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -149,47 +151,81 @@ export function registerUserTools(
           .optional()
           .describe(
             'Instance administrator. Grants access to every repository, secret and ' +
-              'agent on the server.'
+              'agent on the server. Granting it needs a confirm_token.'
           ),
+        confirm_token: confirmTokenParam.optional(),
       },
     },
-    async ({ login, forge_id, email, admin }) =>
+    async ({ login, forge_id, email, admin, confirm_token }) =>
       run(async () => {
         if (email === undefined && admin === undefined) {
           return textResult('Nothing to update — pass email or admin.');
         }
 
-        // Read-modify-write, and not for tidiness. `PATCH /users/{login}` is a
-        // PATCH in name only: the handler assigns login, email, avatar and admin
-        // from the request unconditionally, so a body carrying just `{"admin":
-        // true}` blanks the account's login and email — verified against 3.18.0,
-        // where it answered with `{"id": 0, "login": "", "email": ""}`. Sending
-        // the full object, with forge_id and forge_remote_id so the handler's own
-        // lookup finds the right row, is the only way to make it behave like the
-        // partial update its name promises.
-        const current = (await api.get(
-          `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
-        )) as Record<string, unknown>;
-
-        const body: Record<string, unknown> = {
-          login: current.login,
-          email: email ?? current.email,
-          avatar_url: current.avatar_url,
-          admin: admin ?? current.admin ?? false,
-          forge_id: current.forge_id ?? forge_id,
-          forge_remote_id: current.forge_remote_id,
-        };
-
-        await api.patch(`/users/${pathSegment(login, 'login')}`, body);
-
-        // The response to the PATCH is the request echoed back, not the stored
-        // account, so it is read again rather than reported.
-        const updated = (await api.get(
-          `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
-        )) as Record<string, unknown>;
-        return jsonResult({ user: summarizeUser(updated) });
+        // Only granting admin is guarded. Making every email correction
+        // two-step would train whoever reads these prompts to click through
+        // them, which costs more than it buys — this is the one field that
+        // hands over the whole instance, so this is the one that stops.
+        if (admin === true) {
+          return guarded(
+            confirmations,
+            {
+              tool: 'update_user',
+              targets: [login, String(forge_id ?? ''), 'admin'],
+              what: `make the account "${identifier(login, 'login')}" an instance administrator`,
+              consequence:
+                'An instance administrator reads and writes every repository, ' +
+                'secret and agent on this server, and can grant the same to others.',
+              confirmToken: confirm_token,
+            },
+            async () => applyUserUpdate({ login, forge_id, email, admin })
+          );
+        }
+        return applyUserUpdate({ login, forge_id, email, admin });
       })
   );
+
+  async function applyUserUpdate({
+    login,
+    forge_id,
+    email,
+    admin,
+  }: {
+    login: string;
+    forge_id: number | undefined;
+    email: string | undefined;
+    admin: boolean | undefined;
+  }): Promise<CallToolResult> {
+    // Read-modify-write, and not for tidiness. `PATCH /users/{login}` is a
+    // PATCH in name only: the handler assigns login, email, avatar and admin
+    // from the request unconditionally, so a body carrying just `{"admin":
+    // true}` blanks the account's login and email — verified against 3.18.0,
+    // where it answered with `{"id": 0, "login": "", "email": ""}`. Sending
+    // the full object, with forge_id and forge_remote_id so the handler's own
+    // lookup finds the right row, is the only way to make it behave like the
+    // partial update its name promises.
+    const current = (await api.get(
+      `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
+    )) as Record<string, unknown>;
+
+    const body: Record<string, unknown> = {
+      login: current.login,
+      email: email ?? current.email,
+      avatar_url: current.avatar_url,
+      admin: admin ?? current.admin ?? false,
+      forge_id: current.forge_id ?? forge_id,
+      forge_remote_id: current.forge_remote_id,
+    };
+
+    await api.patch(`/users/${pathSegment(login, 'login')}`, body);
+
+    // The response to the PATCH is the request echoed back, not the stored
+    // account, so it is read again rather than reported.
+    const updated = (await api.get(
+      `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
+    )) as Record<string, unknown>;
+    return jsonResult({ user: summarizeUser(updated) });
+  }
 
   server.registerTool(
     'delete_user',
@@ -214,7 +250,7 @@ export function registerUserTools(
           {
             tool: 'delete_user',
             targets: [login, String(forge_id)],
-            what: `delete the Woodpecker account "${login}"`,
+            what: `delete the Woodpecker account "${identifier(login, 'login')}"`,
             consequence:
               'Repositories this account owns keep pointing at its forge token, ' +
               'which is gone — their pipelines stop starting. Transfer them with ' +

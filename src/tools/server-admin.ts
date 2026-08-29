@@ -1,6 +1,7 @@
 import { z } from 'zod';
 
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 import { guarded } from '../guard.js';
 import { jsonResult, run, textResult } from '../result.js';
@@ -157,13 +158,42 @@ export function registerServerTools(
           ])
           .describe(
             'The new log level. The default is "info". "disabled" turns server ' +
-              'logging off entirely — including the records of what happened next.'
+              'logging off entirely — including the records of what happened next. ' +
+              'Lowering it below "warn" needs a confirm_token.'
+          ),
+        confirm_token: confirmTokenParam
+          .optional()
+          .describe(
+            'Required only for the levels that suppress records — fatal, panic ' +
+              'and disabled.'
           ),
       },
     },
-    async ({ level }) =>
-      run(async () =>
-        jsonResult(await api.post('/log-level', { 'log-level': level }))
-      )
+    async ({ level, confirm_token }) =>
+      run(async () => {
+        const apply = async (): Promise<CallToolResult> =>
+          jsonResult(await api.post('/log-level', { 'log-level': level }));
+
+        // Turning the logs up is how someone debugs; turning them off is how
+        // someone stops the instance recording what happens next. Only the
+        // second direction stops for a confirmation — an audit trail that can
+        // be disabled by a single tool call is not one.
+        const silencing = ['fatal', 'panic', 'disabled'];
+        if (!silencing.includes(level)) return apply();
+
+        return guarded(
+          confirmations,
+          {
+            tool: 'set_log_level',
+            targets: [level],
+            what: `set the server log level to ${level}`,
+            consequence:
+              'The server stops recording warnings and errors, so whatever ' +
+              'happens next leaves no trace in its log.',
+            confirmToken: confirm_token,
+          },
+          apply
+        );
+      })
   );
 }

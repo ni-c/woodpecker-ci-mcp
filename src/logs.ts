@@ -107,7 +107,42 @@ export function decodeLog(
 
 function decodeChunk(data: string | undefined): string {
   if (!data) return '';
-  return Buffer.from(data, 'base64').toString('utf8');
+  return stripControlCharacters(Buffer.from(data, 'base64').toString('utf8'));
+}
+
+/**
+ * Removes terminal control sequences and other non-text bytes from build output.
+ *
+ * A step's stdout is whatever the container wrote, and plenty of it is not text:
+ * CI tools emit ANSI colour and cursor-movement sequences by the thousand, a
+ * progress bar is mostly `\r`, and a step that cats a binary artefact emits
+ * arbitrary bytes. None of it carries meaning once the log is JSON in a model's
+ * context, all of it costs budget, and the escape sequences are a rendering
+ * vector in whatever terminal client displays the result. Tabs and newlines stay
+ * — they are the structure of a log.
+ */
+export function stripControlCharacters(text: string): string {
+  return (
+    text
+      // OSC (ESC ]), terminated by BEL or ST. Matched before CSI because its
+      // payload may contain anything, including something CSI-shaped.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\][\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, '')
+      // CSI (ESC [): colour, cursor movement, line clearing.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+      // The remaining two-character escapes, and a lone trailing ESC.
+      // eslint-disable-next-line no-control-regex
+      .replace(/\u001b[@-Z\\-_]?/g, '')
+      // A progress bar overwrites its own line with a carriage return, and
+      // only the last state of that line was ever meant to be read.
+      .replace(/\r\n/g, '\n')
+      .replace(/[^\n]*\r/g, '')
+      // Everything else below space, plus DEL -- but not tab or newline,
+      // which are the structure of a log.
+      // eslint-disable-next-line no-control-regex
+      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+  );
 }
 
 /**

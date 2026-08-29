@@ -5,7 +5,13 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { query } from '../api.js';
 import { guarded } from '../guard.js';
 import { listOf, summarizeCron } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import {
+  budgetedList,
+  budgetedUntrustedResult,
+  jsonResult,
+  run,
+  textResult,
+} from '../result.js';
 import {
   branchParam,
   confirmTokenParam,
@@ -198,7 +204,7 @@ export function registerCronTools(
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
-        jsonResult({
+        budgetedUntrustedResult({
           pipeline: await api.post(`/repos/${repo_id}/cron/${cron_id}`),
           note: 'Started now; the schedule is unaffected.',
         })

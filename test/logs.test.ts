@@ -5,6 +5,7 @@ import {
   logNote,
   MAX_LOG_BYTES,
   type LogEntry,
+  stripControlCharacters,
 } from '../src/logs.js';
 
 function entry(line: number, text: string, type = 0): LogEntry {
@@ -125,5 +126,38 @@ describe('logNote', () => {
     const note = logNote(decodeLog(entries, { limit: 2, from: 'tail' }));
     expect(note).toContain('last 2 of 10');
     expect(note).toContain('limit');
+  });
+});
+
+describe('stripControlCharacters', () => {
+  // A step's stdout is whatever the container wrote. CI tools colour it, progress
+  // bars rewrite their own line, and a step that cats a binary artefact emits
+  // arbitrary bytes -- none of which survives as meaning in a JSON tool result,
+  // while the escape sequences are a rendering vector in whatever terminal
+  // client shows it.
+  it('removes ANSI colour sequences but keeps the text', () => {
+    expect(
+      stripControlCharacters('\u001b[31mFAIL\u001b[0m - widget_test.go:42')
+    ).toBe('FAIL - widget_test.go:42');
+  });
+
+  it('removes cursor movement and line clearing', () => {
+    expect(stripControlCharacters('\u001b[2K\u001b[1Gdone')).toBe('done');
+  });
+
+  it('removes an OSC title sequence with its payload', () => {
+    expect(stripControlCharacters('\u001b]0;a title\u0007output')).toBe(
+      'output'
+    );
+  });
+
+  it('keeps only the last state of a line a progress bar rewrote', () => {
+    expect(stripControlCharacters('  1%\r 50%\r100% done\n')).toBe(
+      '100% done\n'
+    );
+  });
+
+  it('drops raw binary but keeps tabs and newlines', () => {
+    expect(stripControlCharacters('a\u0000\u0001b\tc\nd')).toBe('ab\tc\nd');
   });
 });

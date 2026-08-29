@@ -42,6 +42,16 @@ async function main(): Promise<void> {
 }
 
 main().catch((error: unknown) => {
-  console.error('woodpecker-ci-mcp: fatal error:', error);
+  // The message and the stack, not the error object. Printing the object walks
+  // its `cause` chain, and the causes here are undici request errors that carry
+  // the request they failed on — headers included. The token is out of the
+  // environment by this point but still lives in the config, and a crash report
+  // is the one place nobody thinks to look for it.
+  if (error instanceof Error) {
+    console.error(`woodpecker-ci-mcp: fatal error: ${error.message}`);
+    if (error.stack !== undefined) console.error(error.stack);
+  } else {
+    console.error(`woodpecker-ci-mcp: fatal error: ${String(error)}`);
+  }
   process.exit(1);
 });

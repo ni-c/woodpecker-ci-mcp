@@ -123,6 +123,30 @@ describe('the API client', () => {
     ).rejects.toBeInstanceOf(ResponseTooLargeError);
   });
 
+  // The other half of the cap, and the half that matters for logs: a chunked
+  // response declares no content-length at all, so the pre-check above never
+  // fires and only the streaming byte count stands between an oversized body
+  // and the process memory.
+  it('refuses a chunked response that outgrows the ceiling while streaming', async () => {
+    const chunk = new Uint8Array(1024);
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              for (let i = 0; i < 16; i++) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+          { headers: { 'content-type': 'application/json' } }
+        )
+    );
+    await expect(
+      new WoodpeckerApi(testConfig()).get('/repos', { maxBytes: 4096 })
+    ).rejects.toBeInstanceOf(ResponseTooLargeError);
+  });
+
   it('sends a JSON body with a content type on writes', async () => {
     const stub = stubFetch({ 'POST /repos/1/cron': { json: {} } });
     await new WoodpeckerApi(testConfig()).post('/repos/1/cron', {

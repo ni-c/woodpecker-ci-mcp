@@ -3,6 +3,7 @@ import { z } from 'zod';
 import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { pathSegment, query } from '../api.js';
+import { identifier } from '../confirm.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -176,7 +177,7 @@ export function registerRegistryTools(
               String(org_id ?? ''),
               address,
             ],
-            what: `delete the registry credentials for "${address}" of ${where}`,
+            what: `delete the registry credentials for "${identifier(address, 'registry address')}" of ${where}`,
             consequence:
               'The password cannot be recovered, and pipelines pulling private ' +
               'images from that registry will fail.',

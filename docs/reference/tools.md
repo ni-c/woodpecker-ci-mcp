@@ -78,10 +78,12 @@ Parameters: `forge_remote_id`.
 
 ### `update_repository`
 
-Changes Woodpecker's settings for a repository. Only the fields you pass are
-touched. `trusted_network`, `trusted_volumes` and `trusted_security` are folded
-into the nested object the API expects; all three are admin-only and
-`trusted_security` lets a pipeline take over the agent host.
+👤 (when granting trust) — Changes Woodpecker's settings for a repository.
+Only the fields you pass are touched. `trusted_network`, `trusted_volumes` and
+`trusted_security` are folded into the nested object the API expects; all three
+are admin-only and `trusted_security` lets a pipeline take over the agent host.
+Setting any of them to `true` is two-step; withdrawing trust, and every other
+field, applies on the first call.
 
 Parameters: `repo_id`, `config_file`, `timeout`, `visibility`, `allow_pr`,
 `allow_deploy`, `require_approval`, `cancel_previous_pipeline_events`,
@@ -187,11 +189,13 @@ Parameters: `repo_id`, `number`.
 
 ### `approve_pipeline`
 
-Releases a pipeline waiting for approval and lets it run. Read what you are
-approving: pipelines are usually blocked because they come from a fork, and
-approving one runs that fork's code with this repository's secrets.
+👤 — Releases a pipeline waiting for approval and lets it run. Read what you
+are approving: pipelines are usually blocked because they come from a fork, and
+approving one runs that fork's code with this repository's secrets. Two-step for
+that reason, and because the model usually arrives here holding a build log —
+which is written by whoever can open the pull request being approved.
 
-Parameters: `repo_id`, `number`.
+Parameters: `repo_id`, `number`, `confirm_token`.
 
 ### `decline_pipeline`
 
@@ -266,11 +270,13 @@ Parameters: `scope`, `repo_id`, `org_id`, `name`, `value`, `events`, `images`,
 
 ### `update_secret`
 
-Changes a secret; passing `value` rotates it. `events` and `images` are replaced
-wholesale rather than merged, so pass the complete list.
+👤 (when passing `value`) — Changes a secret; passing `value` rotates it,
+which is two-step because the old value was never readable through the API and
+is gone once it is overwritten. `events` and `images` are replaced wholesale
+rather than merged, so pass the complete list.
 
 Parameters: `scope`, `repo_id`, `org_id`, `name`, `value`, `events`, `images`,
-`note`.
+`note`, `confirm_token`.
 
 ### `delete_secret`
 
@@ -452,10 +458,12 @@ Parameters: `login`, `email`, `admin`.
 
 ### `update_user`
 
-🛡 — Changes email or the admin flag. Granting `admin` gives full control of the
-instance, including every secret of every repository.
+🛡👤 (when granting admin) — Changes email or the admin flag. Granting
+`admin` gives full control of the instance, including every secret of every
+repository, which is why that one field is two-step. Correcting an email applies
+on the first call.
 
-Parameters: `login`, `email`, `admin`.
+Parameters: `login`, `email`, `admin`, `confirm_token`.
 
 ### `delete_user`
 
@@ -601,8 +609,10 @@ No parameters.
 
 ### `set_log_level`
 
-🛡 — Changes the running server's log level without a restart. `debug` and
-`trace` are loud, and `trace` logs request bodies. `disabled` turns logging off
-entirely, including the record of what happened next.
+🛡👤 (when silencing) — Changes the running server's log level without a
+restart. `debug` and `trace` are loud, and `trace` logs request bodies. Turning
+the logs **down** — `fatal`, `panic` or `disabled` — is two-step: `disabled`
+stops the server recording what happens next at all. Raising the level applies
+on the first call.
 
-Parameters: `level`.
+Parameters: `level`, `confirm_token`.

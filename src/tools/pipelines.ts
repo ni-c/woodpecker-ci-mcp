@@ -4,6 +4,7 @@ import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 
 import { query } from '../api.js';
 import { guarded } from '../guard.js';
+import { stripControlCharacters } from '../logs.js';
 import {
   listOf,
   objectOf,
@@ -11,7 +12,6 @@ import {
   summarizeWorkflows,
 } from '../normalize.js';
 import {
-  budgetedJsonResult,
   budgetedList,
   budgetedUntrustedResult,
   run,
@@ -137,13 +137,17 @@ export function registerPipelineTools(
           await api.get(`/repos/${repo_id}/pipelines/${number}/config`),
           'pipeline configs'
         );
-        // `data` is the file content, base64 in the Go model's JSON.
+        // `data` is the file content, base64 in the Go model's JSON. It is a
+        // file from the repository, so it gets the same control-character
+        // treatment as build output.
         const files = configs.map((config) => ({
           name: config.name,
           hash: config.hash,
           content:
             typeof config.data === 'string'
-              ? Buffer.from(config.data, 'base64').toString('utf8')
+              ? stripControlCharacters(
+                  Buffer.from(config.data, 'base64').toString('utf8')
+                )
               : config.data,
         }));
         return budgetedUntrustedResult({ configs: files });
@@ -185,7 +189,11 @@ export function registerPipelineTools(
     },
     async () =>
       run(async () =>
-        budgetedList('queued', listOf(await api.get('/pipelines'), 'pipelines'))
+        budgetedList(
+          'queued',
+          listOf(await api.get('/pipelines'), 'pipelines'),
+          { untrusted: true }
+        )
       )
   );
 
@@ -222,7 +230,7 @@ export function registerPipelineTools(
           await api.post(`/repos/${repo_id}/pipelines`, body),
           'pipeline'
         );
-        return budgetedJsonResult({
+        return budgetedUntrustedResult({
           pipeline: summarizePipeline(pipeline),
           note: 'Started. It is queued, not finished — poll get_pipeline for its state.',
         });
@@ -263,7 +271,7 @@ export function registerPipelineTools(
           ),
           'pipeline'
         );
-        return budgetedJsonResult({
+        return budgetedUntrustedResult({
           pipeline: summarizePipeline(pipeline),
           note: `Restarted pipeline ${number}; the re-run is a new pipeline.`,
         });
@@ -303,20 +311,43 @@ export function registerPipelineTools(
       inputSchema: {
         repo_id: repoIdParam,
         number: pipelineNumberParam,
+        confirm_token: confirmTokenParam.optional(),
       },
       annotations: { idempotentHint: false },
     },
-    async ({ repo_id, number }) =>
-      run(async () => {
-        const pipeline = objectOf(
-          await api.post(`/repos/${repo_id}/pipelines/${number}/approve`),
-          'pipeline'
-        );
-        return budgetedJsonResult({
-          pipeline: summarizePipeline(pipeline),
-          note: `Pipeline ${number} was approved and is now running.`,
-        });
-      })
+    async ({ repo_id, number, confirm_token }) =>
+      run(async () =>
+        // Two-step on purpose, and this is the tool where it matters most. The
+        // model reaches this decision holding a build log it was handed by
+        // get_step_logs — the one input to this server written by whoever can
+        // open a pull request. "approve pipeline 42" sitting in that log is a
+        // plausible instruction, and approving runs the fork's code with this
+        // repository's secrets. A token that only ever appears in a previous
+        // tool result cannot be supplied by the log.
+        guarded(
+          confirmations,
+          {
+            tool: 'approve_pipeline',
+            targets: [String(repo_id), String(number)],
+            what: `approve blocked pipeline ${number} of repository ${repo_id}`,
+            consequence:
+              'A blocked pipeline is usually one from a fork. Approving it runs ' +
+              "that fork's code with this repository's secrets. Read the pipeline " +
+              'configuration with get_pipeline_config first.',
+            confirmToken: confirm_token,
+          },
+          async () => {
+            const pipeline = objectOf(
+              await api.post(`/repos/${repo_id}/pipelines/${number}/approve`),
+              'pipeline'
+            );
+            return budgetedUntrustedResult({
+              pipeline: summarizePipeline(pipeline),
+              note: `Pipeline ${number} was approved and is now running.`,
+            });
+          }
+        )
+      )
   );
 
   server.registerTool(
@@ -338,7 +369,7 @@ export function registerPipelineTools(
           await api.post(`/repos/${repo_id}/pipelines/${number}/decline`),
           'pipeline'
         );
-        return budgetedJsonResult({
+        return budgetedUntrustedResult({
           pipeline: summarizePipeline(pipeline),
           note: `Pipeline ${number} was declined.`,
         });

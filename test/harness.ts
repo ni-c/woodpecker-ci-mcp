@@ -155,6 +155,19 @@ export function jsonOf(result: CallToolResult): Record<string, unknown> {
   return JSON.parse(text.slice(start)) as Record<string, unknown>;
 }
 
+/**
+ * Calls a guarded tool the way a client has to: once to be told no and handed a
+ * token, then again with it. Returns the second result — the one that acted.
+ */
+export async function callConfirmed(
+  client: Client,
+  name: string,
+  args: Record<string, unknown>
+): Promise<CallToolResult> {
+  const first = await call(client, name, args);
+  return call(client, name, { ...args, confirm_token: tokenOf(first) });
+}
+
 /** The confirmation token a guarded tool handed back on its first call. */
 export function tokenOf(result: CallToolResult): string {
   const match = /confirm_token="([0-9a-f]{32})"/.exec(textOf(result));
