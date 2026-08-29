@@ -12,10 +12,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
-## [Unreleased]
+## [0.1.0] - 2026-08-29
 
-Nothing is released yet — this section becomes `## [0.1.0]` when the first tag is
-pushed.
+First public release.
 
 ### Added
 
@@ -87,5 +86,7 @@ pushed.
   instance-wide pipeline queue, and forge branch names.
 - The fatal-error handler prints the message and stack rather than the error
   object, whose `cause` chain can carry the failed request's headers.
+
+[0.1.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.1.0
 
 <!-- #endregion changelog -->
