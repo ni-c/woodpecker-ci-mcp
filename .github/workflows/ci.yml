@@ -8,6 +8,11 @@ on:
   schedule:
     # Weekly, so the audit job also runs in quiet weeks.
     - cron: '0 6 * * 1'
+  # `codeql` and `publish` below are gated on the repository being public, and
+  # that gate reads the *stored* event payload — so re-running the last private
+  # run skips them again no matter what the repository looks like now. This is
+  # how the first public run gets started without an empty commit.
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
