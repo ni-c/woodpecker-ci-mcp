@@ -1,14 +1,15 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="healthchecks-mcp">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="woodpecker-ci-mcp">
   <!-- Hand-written, not generated: a favicon has no source that could drift.
        The indigo is the same #4f46e5 as the theme colour in .vitepress/config.ts,
        and the mark reads at 16px, which rules out anything finer than this. -->
   <rect width="32" height="32" rx="7" fill="#4f46e5" />
-  <path
-    d="M5 17.5h4.2l2.4-6.4 3.6 11.2 3-13.4 2.4 8.6h6.4"
-    fill="none"
-    stroke="#ffffff"
-    stroke-width="2.2"
-    stroke-linecap="round"
-    stroke-linejoin="round"
-  />
+  <!-- The bird the project is named after, at the trunk it is working on. Head,
+       crest and beak only: a whole bird loses its outline below 32px. -->
+  <rect x="4.6" y="4.4" width="3.4" height="23.2" rx="1.7" fill="#a5b4fc" />
+  <g fill="#ffffff">
+    <path d="M19.4 7.0 24.4 6.0 21.6 10.2Z" />
+    <circle cx="18.6" cy="15.2" r="6.4" />
+    <path d="M8.0 14.8 14.2 11.9 14.2 17.9Z" />
+  </g>
+  <circle cx="18.0" cy="12.9" r="1.6" fill="#4f46e5" />
 </svg>
