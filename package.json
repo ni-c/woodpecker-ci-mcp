@@ -1,6 +1,6 @@
 {
   "name": "@ni-c/woodpecker-ci-mcp",
-  "version": "0.1.0",
+  "version": "0.1.0-rc.0",
   "mcpName": "io.github.ni-c/woodpecker-ci-mcp",
   "description": "MCP server for Woodpecker CI: read repositories, pipelines and logs, and drive builds, secrets and crons",
   "keywords": [
