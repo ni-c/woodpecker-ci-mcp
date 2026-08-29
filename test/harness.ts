@@ -70,10 +70,14 @@ export function stubFetch(routes: Routes = {}): FetchStub {
     vi.fn(async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input);
       const method = (init?.method ?? 'GET').toUpperCase();
-      const underApi = url.startsWith(API);
+      // Matched with the separator, not as a bare prefix: `startsWith(SERVER)`
+      // also accepts `https://woodpecker.example.com.example.net/…`, so a tool
+      // that built its URL against the wrong host would be routed as if it had
+      // hit the configured one, and the test would pass.
+      const underApi = url.startsWith(`${API}/`);
       const path = underApi
         ? url.slice(API.length)
-        : url.startsWith(SERVER)
+        : url.startsWith(`${SERVER}/`)
           ? url.slice(SERVER.length)
           : url;
       const headers: Record<string, string> = {};
