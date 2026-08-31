@@ -41,6 +41,11 @@ async function main(): Promise<void> {
   );
 }
 
+// In a container node runs as PID 1 with no default signal disposition, so
+// without this handler `docker stop` waits out the grace period and SIGKILLs.
+process.on('SIGTERM', () => process.exit(0));
+process.on('SIGINT', () => process.exit(0));
+
 main().catch((error: unknown) => {
   // The message and the stack, not the error object. Printing the object walks
   // its `cause` chain, and the causes here are undici request errors that carry
