@@ -1,9 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { pathSegment, query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   orgFullNameParam,
@@ -11,6 +6,12 @@ import {
   pageParam,
   perPageParam,
 } from '../schema.js';
+import { z } from 'zod';
+
+import { pathSegment, query } from '../api.js';
+import { guarded } from '../guard.js';
+import { listOf } from '../normalize.js';
+import { budgetedList, jsonResult, run, textResult } from '../result.js';
 import type { ToolContext } from './context.js';
 
 export function registerOrgTools(
@@ -26,10 +27,10 @@ export function registerOrgTools(
         'Note that an entry with is_user=true is a personal account, not a real ' +
         'organization — Woodpecker models both the same way, and org-level secrets ' +
         'work for both.',
-      inputSchema: {
+      inputSchema: z.object({
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ page, per_page }) =>
@@ -46,7 +47,7 @@ export function registerOrgTools(
     {
       title: 'Get an organization',
       description: 'Returns one organization by its numeric id.',
-      inputSchema: { org_id: orgIdParam },
+      inputSchema: z.object({ org_id: orgIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ org_id }) =>
@@ -60,7 +61,7 @@ export function registerOrgTools(
       description:
         'Resolves an organization name to its id — the id every other org-level ' +
         'call needs, including org-scoped secrets and registries.',
-      inputSchema: { name: orgFullNameParam },
+      inputSchema: z.object({ name: orgFullNameParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ name }) =>
@@ -80,7 +81,7 @@ export function registerOrgTools(
       description:
         'What the authenticated account may do in this organization: member and ' +
         'admin. Org-level secrets and agents need admin here.',
-      inputSchema: { org_id: orgIdParam },
+      inputSchema: z.object({ org_id: orgIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ org_id }) =>
@@ -98,10 +99,10 @@ export function registerOrgTools(
         'secrets, registries and agents. Admin only. It does not touch the forge, ' +
         'and it does not delete the repositories — but anything of theirs that ' +
         'relied on an org-level secret stops working. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         org_id: orgIdParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ org_id, confirm_token }) =>

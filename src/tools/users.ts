@@ -1,19 +1,17 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
-import { guarded } from '../guard.js';
-import { listOf, summarizeUser } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   loginParam,
   pageParam,
   perPageParam,
 } from '../schema.js';
+
+import { pathSegment, query } from '../api.js';
+import { identifier } from '../confirm.js';
+import { guarded } from '../guard.js';
+import { listOf, summarizeUser } from '../normalize.js';
+import { budgetedList, jsonResult, run, textResult } from '../result.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -45,10 +43,10 @@ export function registerUserTools(
         'Lists the accounts known to this Woodpecker instance. Admin only. ' +
         'Woodpecker creates an account the first time someone logs in, so this is ' +
         'everyone who has ever used it, not a managed roster.',
-      inputSchema: {
+      inputSchema: z.object({
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ page, per_page }) =>
@@ -67,7 +65,7 @@ export function registerUserTools(
       description:
         'Returns one account by its login. Admin only. forge_id is required — see ' +
         'list_users for the value.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam,
         forge_id: forgeIdQueryParam,
         forge_remote_id: z
@@ -77,7 +75,7 @@ export function registerUserTools(
           .max(200)
           .optional()
           .describe('Disambiguates further if the forge reuses logins.'),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ login, forge_id, forge_remote_id }) =>
@@ -103,7 +101,7 @@ export function registerUserTools(
         'create anything in the forge and grants no access there — the person still ' +
         'signs in through the forge; this only pre-creates the Woodpecker record, ' +
         'which is how you make someone an admin before they first log in.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam.describe(
           'The login exactly as the forge spells it. A mismatch creates a second, ' +
             'unused account instead of the one you meant.'
@@ -119,7 +117,7 @@ export function registerUserTools(
           .boolean()
           .optional()
           .describe('Make the account an instance administrator.'),
-      },
+      }),
     },
     async ({ login, email, admin }) =>
       run(async () => {
@@ -142,7 +140,7 @@ export function registerUserTools(
         'Changes an account. Admin only. The one that matters is "admin": granting ' +
         'it gives full control of the instance, including every secret of every ' +
         'repository. Fields you do not pass are preserved.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam,
         forge_id: forgeIdQueryParam,
         email: z.string().trim().email().max(500).optional(),
@@ -154,7 +152,7 @@ export function registerUserTools(
               'agent on the server. Granting it needs a confirm_token.'
           ),
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
     },
     async ({ login, forge_id, email, admin, confirm_token }) =>
       run(async () => {
@@ -236,11 +234,11 @@ export function registerUserTools(
         'owned keep running on a token that no longer exists, which shows up later ' +
         'as pipelines that stop starting — chown_repository moves ownership to ' +
         'someone else, and doing that first is the point. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam,
         forge_id: forgeIdQueryParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ login, forge_id, confirm_token }) =>

@@ -1,10 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query } from '../api.js';
-import { guarded } from '../guard.js';
-import { stripControlCharacters } from '../logs.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   listOf,
   objectOf,
@@ -28,6 +23,10 @@ import {
   variablesParam,
   webhookEventParam,
 } from '../schema.js';
+
+import { query } from '../api.js';
+import { guarded } from '../guard.js';
+import { stripControlCharacters } from '../logs.js';
 import type { ToolContext } from './context.js';
 
 export function registerPipelineTools(
@@ -42,7 +41,7 @@ export function registerPipelineTools(
         "Lists a repository's pipelines, newest first, summarised to what a list " +
         'needs. Filters are applied by the server. Note that "number" — not the ' +
         'pipeline id — is what every other pipeline tool takes.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         branch: branchParam
           .optional()
@@ -72,7 +71,7 @@ export function registerPipelineTools(
           .describe('Only pipelines created after this RFC 3339 timestamp.'),
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, page, per_page, ...filters }) =>
@@ -98,10 +97,10 @@ export function registerPipelineTools(
         'Returns one pipeline with its workflows and steps, including each step id ' +
         '— which is what get_step_logs needs. Step state and exit_code say which ' +
         'step to look at.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, number }) =>
@@ -125,10 +124,10 @@ export function registerPipelineTools(
         'Returns the pipeline YAML files this run was built from, as they were at ' +
         'that commit. This is the config that actually ran, not the one currently ' +
         'in the branch.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, number }) =>
@@ -162,10 +161,10 @@ export function registerPipelineTools(
         'Returns the metadata Woodpecker exposes to the pipeline itself — the ' +
         'CI_* environment a step sees, plus the previous pipeline of the same ' +
         'workflow. Useful when a step behaves differently than its config suggests.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, number }) =>
@@ -184,7 +183,7 @@ export function registerPipelineTools(
         'Lists the pipelines waiting in the server queue across all repositories. ' +
         'This is the instance-wide view: what is stuck, and behind what. ' +
         'get_queue_info adds the agent side of the same picture.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () =>
@@ -207,7 +206,7 @@ export function registerPipelineTools(
         'Starts a pipeline manually on a branch. It runs the config as it is in ' +
         'that branch right now, with event "manual". A branch that does not exist ' +
         'is rejected with a bare 400, so check list_repository_branches first.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         branch: branchParam.describe('Branch to run. Required.'),
         message: z
@@ -219,7 +218,7 @@ export function registerPipelineTools(
             'Note shown on the pipeline, so people know why it was started.'
           ),
         variables: variablesParam.optional(),
-      },
+      }),
     },
     async ({ repo_id, branch, message, variables }) =>
       run(async () => {
@@ -244,7 +243,7 @@ export function registerPipelineTools(
       description:
         'Runs an existing pipeline again, at the same commit and with the same ' +
         'config it used then. The re-run gets a new number; the original is kept.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
         event: webhookEventParam
@@ -260,7 +259,7 @@ export function registerPipelineTools(
             'Target environment, for re-running as a deployment. Only meaningful ' +
               'together with event="deployment".'
           ),
-      },
+      }),
       annotations: { idempotentHint: false },
     },
     async ({ repo_id, number, event, deploy_to }) =>
@@ -286,10 +285,10 @@ export function registerPipelineTools(
         'Stops a pipeline that is pending or running. Its steps are killed where ' +
         'they are, so anything half-written stays half-written. The pipeline can be ' +
         'restarted afterwards.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
-      },
+      }),
       annotations: { idempotentHint: true },
     },
     async ({ repo_id, number }) =>
@@ -308,11 +307,11 @@ export function registerPipelineTools(
         'lets it run. Read what you are approving first: pipelines are usually ' +
         'blocked because they come from a fork, and approving one runs code from ' +
         "that fork with this repository's secrets.",
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { idempotentHint: false },
     },
     async ({ repo_id, number, confirm_token }) =>
@@ -357,10 +356,10 @@ export function registerPipelineTools(
       description:
         'Refuses a pipeline that is waiting for approval. It ends as "declined" and ' +
         'never runs; the pipeline entry and its metadata stay.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
-      },
+      }),
       annotations: { idempotentHint: false },
     },
     async ({ repo_id, number }) =>
@@ -383,11 +382,11 @@ export function registerPipelineTools(
       description:
         'Removes a pipeline and everything attached to it, including its logs. ' +
         'A running pipeline cannot be deleted — cancel it first. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ repo_id, number, confirm_token }) =>

@@ -1,10 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf, summarizeCron } from '../normalize.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   budgetedList,
   budgetedUntrustedResult,
@@ -20,6 +15,10 @@ import {
   perPageParam,
   repoIdParam,
 } from '../schema.js';
+
+import { query } from '../api.js';
+import { guarded } from '../guard.js';
+import { listOf, summarizeCron } from '../normalize.js';
 import type { ToolContext } from './context.js';
 
 const nameParam = z
@@ -88,11 +87,11 @@ export function registerCronTools(
       description:
         'Lists the scheduled pipeline runs of a repository, with the next execution ' +
         'time of each.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, page, per_page }) =>
@@ -112,7 +111,7 @@ export function registerCronTools(
     {
       title: 'Get a cron job',
       description: 'Returns one cron job, including the variables it passes.',
-      inputSchema: { repo_id: repoIdParam, cron_id: cronIdParam },
+      inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, cron_id }) =>
@@ -131,7 +130,7 @@ export function registerCronTools(
         'Schedules a pipeline run. The pipeline runs with event "cron", so steps ' +
         'and secrets restricted to other events do not apply to it — a cron job ' +
         'whose steps all have "when: event: push" runs and does nothing.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         name: nameParam,
         schedule: scheduleParam,
@@ -141,7 +140,7 @@ export function registerCronTools(
             'Branch to run. Defaults to the repository default branch.'
           ),
         timezone: timezoneParam.optional(),
-      },
+      }),
     },
     async ({ repo_id, name, schedule, branch, timezone }) =>
       run(async () => {
@@ -160,7 +159,7 @@ export function registerCronTools(
       description:
         'Changes a cron job. Only the fields you pass are touched — including ' +
         '"enabled", which is how a schedule is paused without losing it.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         cron_id: cronIdParam,
         name: nameParam.optional(),
@@ -171,7 +170,7 @@ export function registerCronTools(
           .boolean()
           .optional()
           .describe('Set false to stop the schedule without deleting it.'),
-      },
+      }),
     },
     async ({ repo_id, cron_id, ...fields }) =>
       run(async () => {
@@ -199,7 +198,7 @@ export function registerCronTools(
         'schedule. The schedule itself is unchanged, and the run counts as a cron ' +
         'event — which is the point: this is how you test that a nightly job works ' +
         'before waiting a night for it.',
-      inputSchema: { repo_id: repoIdParam, cron_id: cronIdParam },
+      inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
       annotations: { idempotentHint: false },
     },
     async ({ repo_id, cron_id }) =>
@@ -218,11 +217,11 @@ export function registerCronTools(
       description:
         'Removes a scheduled run. If you only want it to stop for now, ' +
         'update_cron with enabled=false keeps the definition. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         cron_id: cronIdParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ repo_id, cron_id, confirm_token }) =>

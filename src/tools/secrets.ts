@@ -1,13 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
-import { guarded } from '../guard.js';
-import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   eventsParam,
@@ -16,6 +8,12 @@ import {
   scopeParam,
   secretNameParam,
 } from '../schema.js';
+
+import { pathSegment, query } from '../api.js';
+import { identifier } from '../confirm.js';
+import { guarded } from '../guard.js';
+import { listOf } from '../normalize.js';
+import { budgetedList, jsonResult, run, textResult } from '../result.js';
 import type { ToolContext } from './context.js';
 import { scopeArguments, scopeBase, scopeLabel } from './scope.js';
 
@@ -53,12 +51,12 @@ export function registerSecretTools(
         'Values are never returned by Woodpecker, not even here; you get names, ' +
         'events and image restrictions. Note that a pipeline sees all three levels, ' +
         'so a name missing here may still exist one level up.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ scope, repo_id, org_id, page, per_page }) =>
@@ -84,11 +82,11 @@ export function registerSecretTools(
         "Returns one secret's metadata: which events and images it applies to, and " +
         'its note. The value is not part of the answer — Woodpecker strips it from ' +
         'every response, including the one right after creating it.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         name: secretNameParam,
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ scope, repo_id, org_id, name }) =>
@@ -111,7 +109,7 @@ export function registerSecretTools(
         'readable again through the API, so store it somewhere else too. At least ' +
         'one event is required — the API has no defaults, and a secret without ' +
         'pull_request is invisible to pull-request builds.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         name: secretNameParam,
@@ -123,7 +121,7 @@ export function registerSecretTools(
         events: eventsParam,
         images: imagesParam.optional(),
         note: noteParam.optional(),
-      },
+      }),
     },
     async ({ scope, repo_id, org_id, name, value, events, images, note }) =>
       run(async () => {
@@ -149,7 +147,7 @@ export function registerSecretTools(
         'Changes a secret. Only the fields you pass are touched — but "events" and ' +
         '"images" are replaced wholesale, not merged, so pass the complete list. ' +
         'Passing "value" rotates the secret.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         name: secretNameParam,
@@ -172,7 +170,7 @@ export function registerSecretTools(
             'Required only when passing "value"; changing events, images or the ' +
               'note applies on the first call.'
           ),
-      },
+      }),
     },
     async ({
       scope,
@@ -242,12 +240,12 @@ export function registerSecretTools(
       description:
         'Deletes a secret. Any pipeline that reads it starts failing — or worse, ' +
         'keeps running with an empty value. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         name: secretNameParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ scope, repo_id, org_id, name, confirm_token }) =>

@@ -1,16 +1,15 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-
-import type { Config } from '../src/config.js';
-import { createServer } from '../src/server.js';
-import { ToolFilterError } from '../src/tool-filter.js';
 import {
   ALL_TOOLS,
   ESSENTIAL_TOOLS,
   READ_TOOLS,
   WRITE_TOOLS,
 } from '../src/tools/catalogue.js';
+
+import type { Config } from '../src/config.js';
+import { createServer } from '../src/server.js';
+import { ToolFilterError } from '../src/tool-filter.js';
 import { stubFetch, testConfig } from './harness.js';
 
 /** The tools a server built with this configuration actually offers. */

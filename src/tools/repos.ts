@@ -1,11 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-import { pathSegment, query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf, objectOf, summarizeRepo } from '../normalize.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   budgetedJsonResult,
   budgetedList,
@@ -21,6 +15,10 @@ import {
   repoFullNameParam,
   repoIdParam,
 } from '../schema.js';
+
+import { pathSegment, query } from '../api.js';
+import { guarded } from '../guard.js';
+import { listOf, objectOf, summarizeRepo } from '../normalize.js';
 import type { ToolContext } from './context.js';
 
 export function registerRepoTools(
@@ -37,7 +35,7 @@ export function registerRepoTools(
         'exist in the forge but were never activated, which is where the ' +
         'forge_remote_id for activate_repository comes from. scope="instance" ' +
         'lists every repository on the server and needs an administrator.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: z
           .enum(['account', 'instance'])
           .optional()
@@ -63,7 +61,7 @@ export function registerRepoTools(
           ),
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ scope, include_inactive, name, page, per_page }) =>
@@ -92,7 +90,7 @@ export function registerRepoTools(
       description:
         'Returns the full Woodpecker configuration of one repository: trusted ' +
         'flags, timeout, approval mode, config file path and the extension endpoints.',
-      inputSchema: { repo_id: repoIdParam },
+      inputSchema: z.object({ repo_id: repoIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id }) =>
@@ -112,7 +110,7 @@ export function registerRepoTools(
         'tool takes the numeric id, and this is how you get one. A repository that ' +
         'exists in the forge but was never activated in Woodpecker answers 404 — ' +
         'use list_repositories with include_inactive to find it.',
-      inputSchema: { full_name: repoFullNameParam },
+      inputSchema: z.object({ full_name: repoFullNameParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ full_name }) =>
@@ -136,7 +134,7 @@ export function registerRepoTools(
         'What the authenticated account may do with this repository: pull, push ' +
         'and admin. Woodpecker inherits these from the forge, so this answers "why ' +
         'was that 403" without guessing.',
-      inputSchema: { repo_id: repoIdParam },
+      inputSchema: z.object({ repo_id: repoIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id }) =>
@@ -153,11 +151,11 @@ export function registerRepoTools(
         'Lists the branches of a repository, as Woodpecker sees them in the forge. ' +
         'Useful before trigger_pipeline, which fails with a bare 400 on a branch ' +
         'that does not exist.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, page, per_page }) =>
@@ -179,11 +177,11 @@ export function registerRepoTools(
       description:
         'Lists the open pull requests of a repository, with the index a pipeline ' +
         'ref like "refs/pull/42/head" refers to.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, page, per_page }) =>
@@ -208,7 +206,7 @@ export function registerRepoTools(
         'installs the webhook and makes pipelines run. Takes the forge-side id, ' +
         'NOT an owner/name pair and not a Woodpecker id — call list_repositories ' +
         'with include_inactive=true and read forge_remote_id from the entry.',
-      inputSchema: {
+      inputSchema: z.object({
         forge_remote_id: z
           .string()
           .trim()
@@ -219,7 +217,7 @@ export function registerRepoTools(
             'The repository id as the forge knows it (field forge_remote_id), not ' +
               'the Woodpecker repo_id.'
           ),
-      },
+      }),
     },
     async ({ forge_remote_id }) =>
       run(async () =>
@@ -240,7 +238,7 @@ export function registerRepoTools(
         'Changes Woodpecker settings of a repository. Only the fields you pass are ' +
         'touched. Note that "trusted" grants pipelines of this repository elevated ' +
         'container privileges and is an administrator-only change.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         config_file: z
           .string()
@@ -320,7 +318,7 @@ export function registerRepoTools(
             'Required only when granting one of the trusted_* flags; every other ' +
               'field applies on the first call.'
           ),
-      },
+      }),
     },
     async ({
       repo_id,
@@ -393,7 +391,7 @@ export function registerRepoTools(
         'was renamed or the Woodpecker URL changed. With scope="instance" it does ' +
         'that for every repository on the server, which is two-step and hits the ' +
         'forge API once per repository.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam
           .optional()
           .describe(
@@ -406,7 +404,7 @@ export function registerRepoTools(
             'Default "repository". "instance" repairs all of them (admin only).'
           ),
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { idempotentHint: false },
     },
     async ({ repo_id, scope, confirm_token }) =>
@@ -450,13 +448,13 @@ export function registerRepoTools(
         'Tells Woodpecker that a repository moved to a different owner or name in ' +
         'the forge. It does NOT move anything in the forge — do that first, then ' +
         'call this so Woodpecker follows. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         to: repoFullNameParam.describe(
           'The new full name in "owner/name" form, as it now reads in the forge.'
         ),
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { idempotentHint: false },
     },
     async ({ repo_id, to, confirm_token }) =>
@@ -490,7 +488,7 @@ export function registerRepoTools(
         "Makes the authenticated account the repository's owner in Woodpecker. The " +
         "owner's forge token is what Woodpecker uses to read the repository and " +
         'report build status, so this is the fix when the previous owner left.',
-      inputSchema: { repo_id: repoIdParam },
+      inputSchema: z.object({ repo_id: repoIdParam }),
     },
     async ({ repo_id }) =>
       run(async () =>
@@ -508,10 +506,10 @@ export function registerRepoTools(
         'Removes a repository from Woodpecker: the webhook, every pipeline, all ' +
         'logs, secrets, registries and cron jobs of that repository. The forge ' +
         'repository itself is untouched. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ repo_id, confirm_token }) =>

@@ -1,22 +1,21 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { guarded } from '../guard.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   DEFAULT_LOG_LINES,
   decodeLog,
   logNote,
   type LogEntry,
 } from '../logs.js';
-import { listOf } from '../normalize.js';
-import { run, textResult, untrustedResult } from '../result.js';
 import {
   confirmTokenParam,
   pipelineNumberParam,
   repoIdParam,
   stepIdParam,
 } from '../schema.js';
+
+import { guarded } from '../guard.js';
+import { listOf } from '../normalize.js';
+import { run, textResult, untrustedResult } from '../result.js';
 import type { ToolContext } from './context.js';
 
 export function registerLogTools(
@@ -32,7 +31,7 @@ export function registerLogTools(
         'default — a failing step almost always explains itself in its last lines. ' +
         'The step id comes from get_pipeline (workflows[].steps[].id). Woodpecker ' +
         'returns these lines base64-encoded; this tool decodes and reassembles them.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
         step_id: stepIdParam,
@@ -52,7 +51,7 @@ export function registerLogTools(
             'Which end to read. Default "tail" — the end of the log, where the ' +
               'error is. Use "head" to see how a step started.'
           ),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ repo_id, number, step_id, limit, from }) =>
@@ -95,12 +94,12 @@ export function registerLogTools(
         'their logs do not. This is what you use when a step printed a secret. ' +
         'Two-step. Rotate the leaked credential as well — the log was readable ' +
         'until now, and deleting it does not un-read it.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
         step_id: stepIdParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ repo_id, number, step_id, confirm_token }) =>
@@ -133,11 +132,11 @@ export function registerLogTools(
         'Deletes the stored output of every step of a pipeline. The pipeline and its ' +
         'step results stay, so it still shows which step failed — just not why. ' +
         'Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ repo_id, number, confirm_token }) =>

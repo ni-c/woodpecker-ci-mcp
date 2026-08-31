@@ -1,12 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
-import { guarded } from '../guard.js';
-import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   pageParam,
@@ -14,6 +7,12 @@ import {
   registryAddressParam,
   scopeParam,
 } from '../schema.js';
+
+import { pathSegment, query } from '../api.js';
+import { identifier } from '../confirm.js';
+import { guarded } from '../guard.js';
+import { listOf } from '../normalize.js';
+import { budgetedList, jsonResult, run, textResult } from '../result.js';
 import type { ToolContext } from './context.js';
 import { scopeArguments, scopeBase, scopeLabel } from './scope.js';
 
@@ -44,12 +43,12 @@ export function registerRegistryTools(
       description:
         'Lists the container registry credentials at one level. These are what let ' +
         'a pipeline pull private images. Passwords are never returned.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ scope, repo_id, org_id, page, per_page }) =>
@@ -71,11 +70,11 @@ export function registerRegistryTools(
       description:
         'Returns one registry entry — its address and username. The password is ' +
         'stripped by Woodpecker (Registry.Copy), so it is never in the answer.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         address: registryAddressParam,
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ scope, repo_id, org_id, address }) =>
@@ -97,13 +96,13 @@ export function registerRegistryTools(
         'Stores credentials for a container registry so pipelines can pull private ' +
         'images from it. The address is the identifier — there is no separate name ' +
         '— so "docker.io" and "index.docker.io" are two different entries.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         address: registryAddressParam,
         username: usernameParam,
         password: passwordParam,
-      },
+      }),
     },
     async ({ scope, repo_id, org_id, address, username, password }) =>
       run(async () => {
@@ -123,13 +122,13 @@ export function registerRegistryTools(
       description:
         'Changes the username or password of a registry entry. The address itself ' +
         'cannot be changed — it is the identifier; delete and re-create instead.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         address: registryAddressParam,
         username: usernameParam.optional(),
         password: passwordParam.optional(),
-      },
+      }),
     },
     async ({ scope, repo_id, org_id, address, username, password }) =>
       run(async () => {
@@ -155,12 +154,12 @@ export function registerRegistryTools(
       description:
         'Removes stored credentials for a registry. Pipelines that pull private ' +
         'images from it start failing at the pull step. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         scope: scopeParam,
         ...scopeArguments,
         address: registryAddressParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ scope, repo_id, org_id, address, confirm_token }) =>

@@ -1,10 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf, redactAgent } from '../normalize.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   budgetedList,
   jsonResult,
@@ -19,6 +14,10 @@ import {
   pageParam,
   perPageParam,
 } from '../schema.js';
+
+import { query } from '../api.js';
+import { guarded } from '../guard.js';
+import { listOf, redactAgent } from '../normalize.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -67,7 +66,7 @@ export function registerAgentTools(
         'contact — the call that answers "why is nothing being built". Without ' +
         'org_id this is the instance-wide list and needs an administrator. Agent ' +
         'tokens are redacted.',
-      inputSchema: {
+      inputSchema: z.object({
         org_id: orgIdParam
           .optional()
           .describe(
@@ -75,7 +74,7 @@ export function registerAgentTools(
           ),
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ org_id, page, per_page }) =>
@@ -106,7 +105,7 @@ export function registerAgentTools(
       description:
         'Returns one agent. Admin only. Its token is redacted; an agent that lost ' +
         'its token needs a new one, which means delete_agent and create_agent.',
-      inputSchema: { agent_id: agentIdParam },
+      inputSchema: z.object({ agent_id: agentIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ agent_id }) =>
@@ -126,7 +125,7 @@ export function registerAgentTools(
       description:
         'The work an agent is currently running. Admin only. This is how you find ' +
         'out what is occupying a busy agent, and which pipeline to cancel.',
-      inputSchema: { agent_id: agentIdParam },
+      inputSchema: z.object({ agent_id: agentIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ agent_id }) =>
@@ -150,7 +149,7 @@ export function registerAgentTools(
         'pipeline workloads and read every secret those pipelines use. It is part ' +
         'of this answer because it is the only way to get it — put it straight into ' +
         "the agent's configuration and do not paste it anywhere else.",
-      inputSchema: {
+      inputSchema: z.object({
         name: agentNameParam,
         org_id: orgIdParam
           .optional()
@@ -160,7 +159,7 @@ export function registerAgentTools(
           ),
         no_schedule: noScheduleParam.optional(),
         custom_labels: customLabelsParam.optional(),
-      },
+      }),
     },
     async ({ name, org_id, no_schedule, custom_labels }) =>
       run(async () => {
@@ -189,7 +188,7 @@ export function registerAgentTools(
       description:
         'Changes an agent. Admin only. no_schedule=true is the drain switch: the ' +
         'agent finishes its current work and takes nothing new.',
-      inputSchema: {
+      inputSchema: z.object({
         agent_id: agentIdParam,
         org_id: orgIdParam
           .optional()
@@ -201,7 +200,7 @@ export function registerAgentTools(
         name: agentNameParam.optional(),
         no_schedule: noScheduleParam.optional(),
         custom_labels: customLabelsParam.optional(),
-      },
+      }),
     },
     async ({ agent_id, org_id, name, no_schedule, custom_labels }) =>
       run(async () => {
@@ -232,7 +231,7 @@ export function registerAgentTools(
         'Removes an agent and invalidates its token. Anything it was running is ' +
         'lost and has to be restarted. Drain it first with update_agent ' +
         'no_schedule=true. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         agent_id: agentIdParam,
         org_id: orgIdParam
           .optional()
@@ -241,7 +240,7 @@ export function registerAgentTools(
               'organization admin rather than an instance admin.'
           ),
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ agent_id, org_id, confirm_token }) =>

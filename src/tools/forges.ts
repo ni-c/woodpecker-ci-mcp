@@ -1,11 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   forgeIdParam,
@@ -13,6 +7,11 @@ import {
   pageParam,
   perPageParam,
 } from '../schema.js';
+
+import { query } from '../api.js';
+import { guarded } from '../guard.js';
+import { listOf } from '../normalize.js';
+import { budgetedList, jsonResult, run, textResult } from '../result.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -66,10 +65,10 @@ export function registerForgeTools(
       description:
         'Lists the forges this Woodpecker authenticates against. Admin only. The ' +
         'forge_id shown here is what get_user and delete_user require.',
-      inputSchema: {
+      inputSchema: z.object({
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
+      }),
       annotations: { readOnlyHint: true },
     },
     async ({ page, per_page }) =>
@@ -88,7 +87,7 @@ export function registerForgeTools(
       description:
         'Returns one forge configuration. Admin only. The OAuth client secret is ' +
         'not part of the read model and is never returned.',
-      inputSchema: { forge_id: forgeIdParam },
+      inputSchema: z.object({ forge_id: forgeIdParam }),
       annotations: { readOnlyHint: true },
     },
     async ({ forge_id }) =>
@@ -104,7 +103,7 @@ export function registerForgeTools(
       description:
         'Registers an additional forge. Admin only. The OAuth application has to ' +
         'exist on the forge side first, with this Woodpecker as its callback.',
-      inputSchema: {
+      inputSchema: z.object({
         type: forgeTypeParam,
         url: forgeUrlParam,
         client: z
@@ -128,7 +127,7 @@ export function registerForgeTools(
             'Skip TLS verification towards this forge. Only for a private CA you ' +
               'cannot install; it disables certificate checking entirely.'
           ),
-      },
+      }),
     },
     async (fields) =>
       run(async () => {
@@ -148,7 +147,7 @@ export function registerForgeTools(
         'Changes a forge configuration. Admin only, and two-step: this is the ' +
         'setting every login and every repository read depends on, and a wrong ' +
         'value locks everyone out of the instance — including whoever is fixing it.',
-      inputSchema: {
+      inputSchema: z.object({
         forge_id: forgeIdParam,
         type: forgeTypeParam.optional(),
         url: forgeUrlParam.optional(),
@@ -157,7 +156,7 @@ export function registerForgeTools(
         oauth_host: oauthHostParam.optional(),
         skip_verify: z.boolean().optional(),
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { idempotentHint: false },
     },
     async ({ forge_id, confirm_token, ...fields }) =>
@@ -194,10 +193,10 @@ export function registerForgeTools(
       description:
         'Removes a forge from Woodpecker. Admin only. Everyone who signs in through ' +
         'it loses access, and its repositories can no longer be read. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         forge_id: forgeIdParam,
         confirm_token: confirmTokenParam.optional(),
-      },
+      }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
     async ({ forge_id, confirm_token }) =>

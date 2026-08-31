@@ -1,10 +1,10 @@
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
+import type { CallToolResult } from '@modelcontextprotocol/server';
 import {
   ResponseTooLargeError,
   UnexpectedContentTypeError,
   WoodpeckerApiError,
 } from './api.js';
+
 import { redactSensitive } from './normalize.js';
 
 /**

@@ -1,7 +1,5 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 
 import { guarded } from '../guard.js';
 import { jsonResult, run, textResult } from '../result.js';
@@ -30,7 +28,7 @@ export function registerServerTools(
         'healthy. Works without a token, which makes it the call to use when ' +
         'nothing else does: if this answers, WOODPECKER_URL is right and the ' +
         'problem is WOODPECKER_TOKEN.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () =>
@@ -64,7 +62,7 @@ export function registerServerTools(
         'agent, plus the agent statistics. Admin only. Together with ' +
         'list_queued_pipelines this is the whole answer to "why is my build not ' +
         'starting".',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => run(async () => jsonResult(await api.get('/queue/info')))
@@ -76,7 +74,7 @@ export function registerServerTools(
       title: 'Get the server log level',
       description:
         'Returns the current log level of the Woodpecker server. Admin only.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { readOnlyHint: true },
     },
     async () => run(async () => jsonResult(await api.get('/log-level')))
@@ -93,7 +91,7 @@ export function registerServerTools(
         'everything else queues up. Admin only, and instance-wide — this stops CI ' +
         'for everybody, and it stays paused until someone calls resume_queue. ' +
         'Two-step.',
-      inputSchema: { confirm_token: confirmTokenParam.optional() },
+      inputSchema: z.object({ confirm_token: confirmTokenParam.optional() }),
       annotations: { idempotentHint: true },
     },
     async ({ confirm_token }) =>
@@ -126,7 +124,7 @@ export function registerServerTools(
       description:
         'Lets the server hand work to agents again. Admin only. Queued pipelines ' +
         'start at once, so expect a burst.',
-      inputSchema: {},
+      inputSchema: z.object({}),
       annotations: { idempotentHint: true },
     },
     async () =>
@@ -144,7 +142,7 @@ export function registerServerTools(
         'Changes the log level of the running Woodpecker server, without a restart. ' +
         'Admin only. "debug" and "trace" are loud — set it back when you are done, ' +
         'and remember that trace logs request bodies.',
-      inputSchema: {
+      inputSchema: z.object({
         level: z
           .enum([
             'trace',
@@ -167,7 +165,7 @@ export function registerServerTools(
             'Required only for the levels that suppress records — fatal, panic ' +
               'and disabled.'
           ),
-      },
+      }),
     },
     async ({ level, confirm_token }) =>
       run(async () => {
