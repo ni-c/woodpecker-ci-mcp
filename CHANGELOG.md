@@ -12,6 +12,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [Unreleased]
+
+### Added
+
+- The twenty tools that need a confirmation now **ask the user**, on clients that
+  can show a prompt. The two-call `confirm_token` remains for clients that
+  cannot, so nothing that works today stops working — but where a person can be
+  asked, one is, instead of a token that only proves the same call was made
+  twice.
+
+### Changed
+
+- The confirmation prompt is a **plain result rather than an error**. Asking a
+  question is not a failure, and the rest of the family answers it this way.
+
+- A `confirm_token` that does not match its arguments is **refused with the
+  reason** in the same words as every other server in the family. The binding is
+  unchanged: a token issued for one repository still cannot authorise the
+  whole-instance variant of `repair_repository`.
+
+- Runs on **MCP SDK 2.0**. Existing clients see the same protocol revision they
+  always did; the change is the package layout behind it, and it is what lets
+  the dialog above work on both protocol eras from one code path — including
+  behind a stateless gateway, where the older mechanism silently fell back to
+  the weaker token for every client.
+
+- The linter is **oxlint** instead of eslint plus typescript-eslint, which lifts
+  the TypeScript ceiling: typescript-eslint pins `typescript` below 6.1, so this
+  repository was held on TypeScript 6 by its linter rather than by its code.
+
+- The tool filter, the confirmation store, the host classifier and the
+  documentation-asset generator now come from **`mcp-tool-allowlist`**,
+  **`mcp-approval`**, **`mcp-internal-hosts`** and **`svg-asset-set`** rather
+  than from copies kept here — 916 fewer lines, and one place to fix each. None
+  of them has a runtime dependency of its own.
+
+### Fixed
+
+- Confirmation tokens are compared with a **constant-time** comparison, in the
+  library's implementation rather than in the copy kept here.
+
 ## [0.1.0] - 2026-08-29
 
 First public release.
