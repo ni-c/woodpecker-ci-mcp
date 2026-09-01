@@ -8,6 +8,7 @@ import {
 import { z } from 'zod';
 
 import { budgetedUntrustedResult, jsonResult, run } from '../result.js';
+import { READ_ONLY } from './annotations.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -32,7 +33,7 @@ export function registerAccountTools(
         'an instance administrator. This is the first thing to call when a tool ' +
         'answers 403: the admin-only tools need admin=true here.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () =>
       run(async () =>
@@ -49,7 +50,7 @@ export function registerAccountTools(
         'every repository it can see, newest first. This is the "what is the state ' +
         'of everything" call — one request instead of list_pipelines per repository.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () =>
       run(async () => {

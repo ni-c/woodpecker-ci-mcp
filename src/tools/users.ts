@@ -8,6 +8,7 @@ import {
 } from '../schema.js';
 
 import { pathSegment, query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf, summarizeUser } from '../normalize.js';
@@ -47,7 +48,7 @@ export function registerUserTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -76,7 +77,7 @@ export function registerUserTools(
           .optional()
           .describe('Disambiguates further if the forge reuses logins.'),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ login, forge_id, forge_remote_id }) =>
       run(async () =>
@@ -118,6 +119,14 @@ export function registerUserTools(
           .optional()
           .describe('Make the account an instance administrator.'),
       }),
+      annotations: {
+        // Additive. It can grant instance admin in the same call, which is a
+        // privilege change rather than a destruction — the guard covers that.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ login, email, admin }) =>
       run(async () => {
@@ -153,6 +162,13 @@ export function registerUserTools(
           ),
         confirm_token: confirmTokenParam.optional(),
       }),
+      annotations: {
+        // Replaces the account record, and can grant instance admin.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ login, forge_id, email, admin, confirm_token }, mcp) =>
       run(async () => {
@@ -242,7 +258,15 @@ export function registerUserTools(
         forge_id: forgeIdQueryParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ login, forge_id, confirm_token }, mcp) =>
       run(async () =>

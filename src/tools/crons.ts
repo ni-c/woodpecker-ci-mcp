@@ -17,6 +17,7 @@ import {
 } from '../schema.js';
 
 import { query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { listOf, summarizeCron } from '../normalize.js';
 import type { ToolContext } from './context.js';
@@ -92,7 +93,7 @@ export function registerCronTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -112,7 +113,7 @@ export function registerCronTools(
       title: 'Get a cron job',
       description: 'Returns one cron job, including the variables it passes.',
       inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
@@ -141,6 +142,13 @@ export function registerCronTools(
           ),
         timezone: timezoneParam.optional(),
       }),
+      annotations: {
+        // Additive. Two calls leave two cron jobs.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, name, schedule, branch, timezone }) =>
       run(async () => {
@@ -171,6 +179,13 @@ export function registerCronTools(
           .optional()
           .describe('Set false to stop the schedule without deleting it.'),
       }),
+      annotations: {
+        // Replaces the schedule and branch somebody set.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, cron_id, ...fields }) =>
       run(async () => {
@@ -199,7 +214,14 @@ export function registerCronTools(
         'event — which is the point: this is how you test that a nightly job works ' +
         'before waiting a night for it.',
       inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Runs a build now, outside the schedule. Same reasoning as
+        // trigger_pipeline: what it does is written in the repository.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
@@ -222,7 +244,15 @@ export function registerCronTools(
         cron_id: cronIdParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, cron_id, confirm_token }, mcp) =>
       run(async () =>

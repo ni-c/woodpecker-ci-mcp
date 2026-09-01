@@ -9,6 +9,7 @@ import {
 import { z } from 'zod';
 
 import { pathSegment, query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -31,7 +32,7 @@ export function registerOrgTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -48,7 +49,7 @@ export function registerOrgTools(
       title: 'Get an organization',
       description: 'Returns one organization by its numeric id.',
       inputSchema: z.object({ org_id: orgIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ org_id }) =>
       run(async () => jsonResult(await api.get(`/orgs/${org_id}`)))
@@ -62,7 +63,7 @@ export function registerOrgTools(
         'Resolves an organization name to its id — the id every other org-level ' +
         'call needs, including org-scoped secrets and registries.',
       inputSchema: z.object({ name: orgFullNameParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ name }) =>
       run(async () =>
@@ -82,7 +83,7 @@ export function registerOrgTools(
         'What the authenticated account may do in this organization: member and ' +
         'admin. Org-level secrets and agents need admin here.',
       inputSchema: z.object({ org_id: orgIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ org_id }) =>
       run(async () => jsonResult(await api.get(`/orgs/${org_id}/permissions`)))
@@ -103,7 +104,15 @@ export function registerOrgTools(
         org_id: orgIdParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ org_id, confirm_token }, mcp) =>
       run(async () =>

@@ -10,6 +10,7 @@ import {
 } from '../schema.js';
 
 import { pathSegment, query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
@@ -57,7 +58,7 @@ export function registerSecretTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ scope, repo_id, org_id, page, per_page }) =>
       run(async () => {
@@ -87,7 +88,7 @@ export function registerSecretTools(
         ...scopeArguments,
         name: secretNameParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ scope, repo_id, org_id, name }) =>
       run(async () => {
@@ -122,6 +123,14 @@ export function registerSecretTools(
         images: imagesParam.optional(),
         note: noteParam.optional(),
       }),
+      annotations: {
+        // Additive. Woodpecker refuses a name that already exists, so this
+        // cannot quietly overwrite the value update_secret guards.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ scope, repo_id, org_id, name, value, events, images, note }) =>
       run(async () => {
@@ -171,6 +180,14 @@ export function registerSecretTools(
               'note applies on the first call.'
           ),
       }),
+      annotations: {
+        // Replaces a secret value that was never readable through the API.
+        // Nothing can bring the old one back.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (
       {
@@ -252,7 +269,15 @@ export function registerSecretTools(
         name: secretNameParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ scope, repo_id, org_id, name, confirm_token }, mcp) =>
       run(async () => {

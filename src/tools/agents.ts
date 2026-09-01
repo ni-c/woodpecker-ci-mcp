@@ -16,6 +16,7 @@ import {
 } from '../schema.js';
 
 import { query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { listOf, redactAgent } from '../normalize.js';
 import type { ToolContext } from './context.js';
@@ -75,7 +76,7 @@ export function registerAgentTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ org_id, page, per_page }) =>
       run(async () => {
@@ -106,7 +107,7 @@ export function registerAgentTools(
         'Returns one agent. Admin only. Its token is redacted; an agent that lost ' +
         'its token needs a new one, which means delete_agent and create_agent.',
       inputSchema: z.object({ agent_id: agentIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ agent_id }) =>
       run(async () =>
@@ -126,7 +127,7 @@ export function registerAgentTools(
         'The work an agent is currently running. Admin only. This is how you find ' +
         'out what is occupying a busy agent, and which pipeline to cancel.',
       inputSchema: z.object({ agent_id: agentIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ agent_id }) =>
       run(async () =>
@@ -160,6 +161,13 @@ export function registerAgentTools(
         no_schedule: noScheduleParam.optional(),
         custom_labels: customLabelsParam.optional(),
       }),
+      annotations: {
+        // Additive. Each call mints a new agent with a new token.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ name, org_id, no_schedule, custom_labels }) =>
       run(async () => {
@@ -201,6 +209,13 @@ export function registerAgentTools(
         no_schedule: noScheduleParam.optional(),
         custom_labels: customLabelsParam.optional(),
       }),
+      annotations: {
+        // Replaces the agent record with the fields given.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ agent_id, org_id, name, no_schedule, custom_labels }) =>
       run(async () => {
@@ -241,7 +256,14 @@ export function registerAgentTools(
           ),
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — the second call fails,
+        // but the world is the same either way.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ agent_id, org_id, confirm_token }, mcp) =>
       run(async () =>

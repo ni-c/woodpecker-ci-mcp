@@ -9,6 +9,7 @@ import {
 } from '../schema.js';
 
 import { query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -69,7 +70,7 @@ export function registerForgeTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -88,7 +89,7 @@ export function registerForgeTools(
         'Returns one forge configuration. Admin only. The OAuth client secret is ' +
         'not part of the read model and is never returned.',
       inputSchema: z.object({ forge_id: forgeIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ forge_id }) =>
       run(async () => jsonResult(await api.get(`/forges/${forge_id}`)))
@@ -128,6 +129,14 @@ export function registerForgeTools(
               'cannot install; it disables certificate checking entirely.'
           ),
       }),
+      annotations: {
+        // Additive, and a widening of the authentication surface rather
+        // than a loss: a second forge is another way to sign in.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async (fields) =>
       run(async () => {
@@ -157,7 +166,14 @@ export function registerForgeTools(
         skip_verify: z.boolean().optional(),
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Replaces the forge configuration every login goes through. A
+        // wrong URL or secret locks every user out.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ forge_id, confirm_token, ...fields }, mcp) =>
       run(async () => {
@@ -200,7 +216,15 @@ export function registerForgeTools(
         forge_id: forgeIdParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ forge_id, confirm_token }, mcp) =>
       run(async () =>

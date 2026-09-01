@@ -2,6 +2,7 @@ import { z } from 'zod';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 
 import { guarded } from '../guard.js';
+import { READ_ONLY } from './annotations.js';
 import { jsonResult, run, textResult } from '../result.js';
 import { confirmTokenParam } from '../schema.js';
 import type { ToolContext } from './context.js';
@@ -29,7 +30,7 @@ export function registerServerTools(
         'nothing else does: if this answers, WOODPECKER_URL is right and the ' +
         'problem is WOODPECKER_TOKEN.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () =>
       run(async () => {
@@ -63,7 +64,7 @@ export function registerServerTools(
         'list_queued_pipelines this is the whole answer to "why is my build not ' +
         'starting".',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () => run(async () => jsonResult(await api.get('/queue/info')))
   );
@@ -75,7 +76,7 @@ export function registerServerTools(
       description:
         'Returns the current log level of the Woodpecker server. Admin only.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () => run(async () => jsonResult(await api.get('/log-level')))
   );
@@ -92,7 +93,14 @@ export function registerServerTools(
         'for everybody, and it stays paused until someone calls resume_queue. ' +
         'Two-step.',
       inputSchema: z.object({ confirm_token: confirmTokenParam.optional() }),
-      annotations: { idempotentHint: true },
+      annotations: {
+        // A state, not content. Nothing is lost — but nothing starts
+        // either, and nobody is told, which is why it is guarded.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ confirm_token }, mcp) =>
       run(async () =>
@@ -128,7 +136,13 @@ export function registerServerTools(
         'Lets the server hand work to agents again. Admin only. Queued pipelines ' +
         'start at once, so expect a burst.',
       inputSchema: z.object({}),
-      annotations: { idempotentHint: true },
+      annotations: {
+        // Restores service.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async () =>
       run(async () => {
@@ -169,6 +183,14 @@ export function registerServerTools(
               'and disabled.'
           ),
       }),
+      annotations: {
+        // A setting, not content. Silencing it hides warnings and errors,
+        // which is why that direction is guarded — but nothing is lost.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ level, confirm_token }, mcp) =>
       run(async () => {

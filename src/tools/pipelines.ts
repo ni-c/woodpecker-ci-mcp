@@ -25,6 +25,7 @@ import {
 } from '../schema.js';
 
 import { query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { stripControlCharacters } from '../logs.js';
 import type { ToolContext } from './context.js';
@@ -72,7 +73,7 @@ export function registerPipelineTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, page, per_page, ...filters }) =>
       run(async () => {
@@ -101,7 +102,7 @@ export function registerPipelineTools(
         repo_id: repoIdParam,
         number: pipelineNumberParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -128,7 +129,7 @@ export function registerPipelineTools(
         repo_id: repoIdParam,
         number: pipelineNumberParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -165,7 +166,7 @@ export function registerPipelineTools(
         repo_id: repoIdParam,
         number: pipelineNumberParam,
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, number }) =>
       run(async () =>
@@ -184,7 +185,7 @@ export function registerPipelineTools(
         'This is the instance-wide view: what is stuck, and behind what. ' +
         'get_queue_info adds the agent side of the same picture.',
       inputSchema: z.object({}),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async () =>
       run(async () =>
@@ -219,6 +220,15 @@ export function registerPipelineTools(
           ),
         variables: variablesParam.optional(),
       }),
+      annotations: {
+        // Runs a build. What that build does is written in the repository,
+        // not here, so this server cannot promise it destroys nothing.
+        // Each call is a separate pipeline.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, branch, message, variables }) =>
       run(async () => {
@@ -260,7 +270,13 @@ export function registerPipelineTools(
               'together with event="deployment".'
           ),
       }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Runs the build again. Each call is a new pipeline.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number, event, deploy_to }) =>
       run(async () => {
@@ -289,7 +305,13 @@ export function registerPipelineTools(
         repo_id: repoIdParam,
         number: pipelineNumberParam,
       }),
-      annotations: { idempotentHint: true },
+      annotations: {
+        // Stops a run. The pipeline record and its logs stay.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -312,7 +334,15 @@ export function registerPipelineTools(
         number: pipelineNumberParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Runs a blocked pipeline — usually one from a fork — with this
+        // repository's secrets. The sharpest of the code-running tools.
+        // Guarded for exactly that.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
@@ -363,7 +393,13 @@ export function registerPipelineTools(
         repo_id: repoIdParam,
         number: pipelineNumberParam,
       }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Refuses to run it. Nothing executes and nothing is lost.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -390,7 +426,15 @@ export function registerPipelineTools(
         number: pipelineNumberParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>

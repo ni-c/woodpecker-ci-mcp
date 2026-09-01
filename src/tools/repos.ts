@@ -17,6 +17,7 @@ import {
 } from '../schema.js';
 
 import { pathSegment, query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { listOf, objectOf, summarizeRepo } from '../normalize.js';
 import type { ToolContext } from './context.js';
@@ -62,7 +63,7 @@ export function registerRepoTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ scope, include_inactive, name, page, per_page }) =>
       run(async () => {
@@ -91,7 +92,7 @@ export function registerRepoTools(
         'Returns the full Woodpecker configuration of one repository: trusted ' +
         'flags, timeout, approval mode, config file path and the extension endpoints.',
       inputSchema: z.object({ repo_id: repoIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id }) =>
       run(async () =>
@@ -111,7 +112,7 @@ export function registerRepoTools(
         'exists in the forge but was never activated in Woodpecker answers 404 — ' +
         'use list_repositories with include_inactive to find it.',
       inputSchema: z.object({ full_name: repoFullNameParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ full_name }) =>
       run(async () =>
@@ -135,7 +136,7 @@ export function registerRepoTools(
         'and admin. Woodpecker inherits these from the forge, so this answers "why ' +
         'was that 403" without guessing.',
       inputSchema: z.object({ repo_id: repoIdParam }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id }) =>
       run(async () =>
@@ -156,7 +157,7 @@ export function registerRepoTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -182,7 +183,7 @@ export function registerRepoTools(
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -218,6 +219,14 @@ export function registerRepoTools(
               'the Woodpecker repo_id.'
           ),
       }),
+      annotations: {
+        // Additive: it starts watching a repository. Activating one that is
+        // already active leaves it active.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ forge_remote_id }) =>
       run(async () =>
@@ -319,6 +328,14 @@ export function registerRepoTools(
               'field applies on the first call.'
           ),
       }),
+      annotations: {
+        // Replaces repository settings, and is the tool that can grant
+        // elevated trust — guarded for that reason.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async (
       {
@@ -411,7 +428,14 @@ export function registerRepoTools(
           ),
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Rewrites webhooks to what they should be. Idempotent by design —
+        // that is what repairing means.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, scope, confirm_token }, mcp) =>
       run(async () => {
@@ -464,7 +488,14 @@ export function registerRepoTools(
         ),
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { idempotentHint: false },
+      annotations: {
+        // Points Woodpecker at a different forge repository. If the move
+        // did not happen in the forge first, it loses track of the old one.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, to, confirm_token }, mcp) =>
       run(async () =>
@@ -501,6 +532,14 @@ export function registerRepoTools(
         "owner's forge token is what Woodpecker uses to read the repository and " +
         'report build status, so this is the fix when the previous owner left.',
       inputSchema: z.object({ repo_id: repoIdParam }),
+      annotations: {
+        // Transfers which forge token the pipelines run under. The previous
+        // owner relationship is not kept anywhere.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id }) =>
       run(async () =>
@@ -522,7 +561,15 @@ export function registerRepoTools(
         repo_id: repoIdParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, confirm_token }, mcp) =>
       run(async () =>

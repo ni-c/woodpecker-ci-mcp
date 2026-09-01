@@ -23,6 +23,20 @@ import { createServer } from '../src/server.js';
 import { ToolFilterError } from 'mcp-tool-allowlist';
 import { stubFetch, testConfig } from './harness.js';
 
+/** Every registered tool, as the client sees it — annotations included. */
+async function listTools() {
+  stubFetch();
+  const server = createServer(testConfig());
+  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await Promise.all([
+    server.connect(serverTransport),
+    client.connect(clientTransport),
+  ]);
+  return (await client.listTools()).tools;
+}
+
 /** The tools a server built with this configuration actually offers. */
 async function toolNames(overrides: Partial<Config> = {}): Promise<string[]> {
   stubFetch();
@@ -84,6 +98,70 @@ describe('the catalogue', () => {
         { name: tool.name, readOnly: tool.annotations?.readOnlyHint === true },
         `${tool.name} carries the wrong readOnlyHint`
       ).toEqual({ name: tool.name, readOnly: isRead });
+    }
+  });
+
+  it('declares all four annotation hints on every tool', async () => {
+    // Not a style rule. Two of the four default to a *stronger* claim than
+    // silence suggests: the specification gives destructiveHint and
+    // openWorldHint a default of true, so a tool that omits them announces
+    // itself as destructive and open-world. Sixteen tools here had no
+    // annotations block at all — the largest hole in the fleet.
+    const tools = await listTools();
+    const hints = [
+      'readOnlyHint',
+      'destructiveHint',
+      'idempotentHint',
+      'openWorldHint',
+    ] as const;
+    for (const tool of tools) {
+      for (const hint of hints) {
+        expect(typeof tool.annotations?.[hint], `${tool.name}.${hint}`).toBe(
+          'boolean'
+        );
+      }
+    }
+  });
+
+  it('marks the tools that run a build as destructive', async () => {
+    // The case this server has and the others do not. Woodpecker itself loses
+    // nothing when a pipeline starts — but what the pipeline does is written
+    // in the repository, not here, so this server cannot promise it destroys
+    // nothing. approve_pipeline is the sharpest: it runs a fork's code with
+    // this repository's secrets.
+    const tools = await listTools();
+    const byName = new Map(tools.map((t) => [t.name, t.annotations]));
+    for (const runs of [
+      'trigger_pipeline',
+      'restart_pipeline',
+      'run_cron',
+      'approve_pipeline',
+    ]) {
+      expect(byName.get(runs)?.destructiveHint, runs).toBe(true);
+      expect(byName.get(runs)?.idempotentHint, runs).toBe(false);
+    }
+    // Refusing to run one, and stopping one, execute nothing.
+    for (const stops of ['decline_pipeline', 'cancel_pipeline']) {
+      expect(byName.get(stops)?.destructiveHint, stops).toBe(false);
+    }
+  });
+
+  it('does not warn about the six create tools', async () => {
+    // All six used to inherit destructiveHint: true from the default. Adding
+    // an agent, a cron, a forge, a registry, a secret or a user takes nothing
+    // away — and create_secret cannot overwrite what update_secret guards,
+    // because Woodpecker refuses a name that already exists.
+    const tools = await listTools();
+    const byName = new Map(tools.map((t) => [t.name, t.annotations]));
+    for (const name of [
+      'create_agent',
+      'create_cron',
+      'create_forge',
+      'create_registry',
+      'create_secret',
+      'create_user',
+    ]) {
+      expect(byName.get(name)?.destructiveHint, name).toBe(false);
     }
   });
 });

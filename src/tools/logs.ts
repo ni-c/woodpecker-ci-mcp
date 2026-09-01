@@ -14,6 +14,7 @@ import {
 } from '../schema.js';
 
 import { guarded } from '../guard.js';
+import { READ_ONLY } from './annotations.js';
 import { listOf } from '../normalize.js';
 import { run, textResult, untrustedResult } from '../result.js';
 import type { ToolContext } from './context.js';
@@ -52,7 +53,7 @@ export function registerLogTools(
               'error is. Use "head" to see how a step started.'
           ),
       }),
-      annotations: { readOnlyHint: true },
+      annotations: READ_ONLY,
     },
     async ({ repo_id, number, step_id, limit, from }) =>
       run(async () => {
@@ -100,7 +101,15 @@ export function registerLogTools(
         step_id: stepIdParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number, step_id, confirm_token }, mcp) =>
       run(async () =>
@@ -140,7 +149,15 @@ export function registerLogTools(
         number: pipelineNumberParam,
         confirm_token: confirmTokenParam.optional(),
       }),
-      annotations: { destructiveHint: true, idempotentHint: false },
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
     },
     async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
