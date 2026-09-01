@@ -6,7 +6,7 @@ import { call, connect, repoFixture, stubFetch, textOf } from './harness.js';
  * The point of the approval path: a client that can put a question in front of a
  * person gets asked, instead of a token that only proves the same call was made
  * twice. Every other test in this repository drives the token path through
- * `callConfirmed`, and would pass just as well against a server that silently
+ * `confirmed`, and would pass just as well against a server that silently
  * never asks — so the control below ("a capable client is not offered a token")
  * is the one that has to fail if the wiring is undone.
  *

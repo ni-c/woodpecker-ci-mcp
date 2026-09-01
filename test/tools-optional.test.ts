@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   agentFixture,
   call,
-  callConfirmed,
+  confirmed,
   connect,
   PIPELINE_NUMBER,
   pipelineFixture,
@@ -52,7 +52,7 @@ describe('optional arguments reach the API', () => {
     const stub = stubFetch({
       [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
     });
-    await callConfirmed(await connect(), 'update_repository', {
+    await confirmed(await connect(), 'update_repository', {
       repo_id: REPO_ID,
       config_file: '.woodpecker/',
       visibility: 'internal',

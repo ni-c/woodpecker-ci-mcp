@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REDACTED } from '../src/normalize.js';
 import {
   call,
-  callConfirmed,
+  confirmed,
   connect,
   jsonOf,
   pipelineFixture,
@@ -199,7 +199,7 @@ describe('update_user does not blank the fields it was not given', () => {
       'GET /users/octocat': { json: stored },
       'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
     });
-    await callConfirmed(await connect(), 'update_user', {
+    await confirmed(await connect(), 'update_user', {
       login: 'octocat',
       forge_id: 1,
       admin: true,
@@ -222,7 +222,7 @@ describe('update_user does not blank the fields it was not given', () => {
       },
       'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
     });
-    const result = await callConfirmed(await connect(), 'update_user', {
+    const result = await confirmed(await connect(), 'update_user', {
       login: 'octocat',
       forge_id: 1,
       admin: true,

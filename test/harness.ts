@@ -188,7 +188,7 @@ export function jsonOf(result: CallToolResult): Record<string, unknown> {
  * Calls a guarded tool the way a client has to: once to be told no and handed a
  * token, then again with it. Returns the second result — the one that acted.
  */
-export async function callConfirmed(
+export async function confirmed(
   client: Client,
   name: string,
   args: Record<string, unknown>
