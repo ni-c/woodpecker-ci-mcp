@@ -38,41 +38,64 @@ useful to know, because it means there is no tool that can read them back:
 Store a secret's value somewhere else when you set it. This server cannot give it
 back to you, and neither can the web UI.
 
-## Irreversible operations are two-step
+## Irreversible operations ask a person
 
-Twenty tools take a confirmation token: every `delete_*`, plus
-`move_repository`, the whole-instance `repair_repository`, `update_forge`,
-`pause_queue` and `approve_pipeline` — and four more only in the direction that
-escalates: `update_user` when it grants `admin`, `update_repository` when it
-grants one of the `trusted_*` flags, `update_secret` when it overwrites a value,
-and `set_log_level` when it silences the server.
+Twenty-two tools ask: every `delete_*`, plus `move_repository`, `chown_repository`,
+the whole-instance `repair_repository`, `update_forge`, `pause_queue` and
+`approve_pipeline` — and five more only in the direction that escalates:
+`update_user` when it grants `admin`, `create_user` when it creates one,
+`update_repository` when it grants one of the `trusted_*` flags, `update_secret`
+when it overwrites a value, and `set_log_level` when it silences the server.
 
 Only that direction. Correcting an email, withdrawing trust, renaming a secret or
 turning the logs *up* applies on the first call: a confirmation on the harmless
 half of a tool teaches whoever reads these prompts to click through them, which
 costs more than it buys.
 
-The first call performs nothing. It returns a random, single-use token with a
-five-minute lifetime, bound to a fingerprint of the exact arguments, together
-with a sentence describing what the second call will do and what that costs.
+Where the MCP client supports elicitation, the question is a **dialog** shown to
+whoever is sitting there — the model cannot answer it on their behalf, and until an
+answer comes back the first call performs nothing.
 
-That binding is the part that matters. A token issued for repository 21 does not
-delete repository 99; a token issued to change a forge's URL does not authorise
-changing its client secret; a token for one tool is not a token for another.
+Where the client cannot show one, that first call returns a random, single-use
+token with a five-minute lifetime, bound to a fingerprint of the exact arguments,
+together with a sentence describing what the second call will do and what that
+costs. Be clear about what the token proves, because this server is: **the call was
+made twice with the same arguments, and nothing more.** A model can read it out of
+the first result and quote it back in the same turn. The fallback text says so
+rather than implying somebody approved, and names whether it was the client that
+could not be asked or the operator who switched the dialog off with
+`ELICITATION=false`.
+
+Either way the binding is the part that matters. An approval issued for repository
+21 does not delete repository 99; one issued to change a forge's URL does not
+authorise changing its client secret; one for a tool is not one for another.
 A plain `confirm: true` parameter would give none of that — and a model can set a
 boolean on its own, including one it was talked into by text it read somewhere.
+
+`chown_repository` is asked about for what the ownership *is*: every pipeline of
+that repository afterwards runs under the calling account's forge token, so its
+reach over the forge becomes the repository's reach. `delete_user` already cited
+that in its own reasoning while the tool that performs the transfer did not ask.
+
+`create_user` is asked about on exactly the field `update_user` is — until it was
+added, the same privilege by the same flag had a dialog in front of one of them and
+not the other, and the description advertised the gap: "which is how you make
+someone an admin before they first log in."
+
+See [Asking a person](/guide/approval).
 
 `pause_queue` is in that list for a different reason from the rest. It is
 reversible, but it is instance-wide and silent: nothing tells the people whose
 builds are queuing why nothing is starting.
 
-`approve_pipeline` is the one where the two-step earns its keep most directly. A
+`approve_pipeline` is the one where asking earns its keep most directly. A
 blocked pipeline is usually one from a fork, and approving it runs that fork's
 code with the repository's secrets — while the model deciding whether to approve
 is typically holding a build log it fetched with `get_step_logs`, which is this
 server's one input written by whoever opened the pull request. "Approve pipeline
-42" sitting in that log is a plausible-looking instruction. A token that only
-ever appears in a previous *tool result* cannot be supplied by the log.
+42" sitting in that log is a plausible-looking instruction. A dialog goes to a
+person the log cannot reach, and even the fallback token only ever appears in a
+previous *tool result*.
 
 ## Untrusted content
 

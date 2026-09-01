@@ -8,6 +8,7 @@
 | `WOODPECKER_ALLOW_TOOLS`  | no       | —       | Tool names, `list_*` prefixes or `essential`; only these register         |
 | `WOODPECKER_DENY_TOOLS`   | no       | —       | Same syntax; subtracted from whatever the allow list left                |
 | `WOODPECKER_INSECURE_TLS` | no       | `false` | `true` accepts self-signed certificates, scoped to this connection       |
+| `ELICITATION`             | no       | `true`  | `false` replaces the approval dialog with the two-call token. **Not prefixed** |
 
 Booleans are the exact string `true`; anything else, including `1` and `TRUE`, is
 false. That is deliberate — a variable that means "on" for four spellings and
@@ -51,6 +52,27 @@ start-up rather than being ignored.
 
 See [choosing the tools that load](/guide/configuration#choosing-the-tools-that-load)
 for what that buys and how it fails.
+
+## `ELICITATION`
+
+Whether a client that *can* show a dialog is asked before a guarded tool acts.
+Default `true`. `false` takes the two-call-token path instead — it does not remove
+the guard, and a server started with it off prints one line saying so.
+
+Two ways it differs from every other variable here:
+
+- **No prefix.** One `export ELICITATION=false` reaches every MCP server in the same
+  environment, not just this one. That is the point of it and also its risk; see
+  [Asking a person](/guide/approval).
+- **Fatal on anything else.** Where `WOODPECKER_READ_ONLY` fails *off* on a typo,
+  this one stops the server with exit code 1 — through the same `fail()` every other
+  refusal in `config.ts` uses. It is the only variable here that defaults to *on*,
+  and a typo that fell back would leave the dialog running while you believed it
+  was off.
+
+Values are trimmed and matched case-insensitively. It is read *after*
+`WOODPECKER_TOKEN` is deleted from `process.env`, so the fatal path cannot leave the
+token sitting there for a crash reporter.
 
 ## `WOODPECKER_INSECURE_TLS`
 

@@ -100,7 +100,7 @@ or mount a zoneinfo database into the server container
 ## Why can it not restart a pipeline I just deleted?
 
 Deleting a pipeline takes its logs and step results with it; there is nothing
-left to re-run. That is why `delete_pipeline` is one of the two-step tools. If
+left to re-run. That is why `delete_pipeline` [asks a person](/guide/approval). If
 you only want it to stop, `cancel_pipeline` is the reversible one.
 
 ## Can I use this against a Woodpecker behind SSO?

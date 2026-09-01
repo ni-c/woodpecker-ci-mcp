@@ -101,7 +101,8 @@ export function registerUserTools(
         'Registers an account ahead of its first login. Admin only. This does not ' +
         'create anything in the forge and grants no access there — the person still ' +
         'signs in through the forge; this only pre-creates the Woodpecker record, ' +
-        'which is how you make someone an admin before they first log in.',
+        'which is how you make someone an admin before they first log in. ' +
+        'Passing admin=true asks a person first.',
       inputSchema: z.object({
         login: loginParam.describe(
           'The login exactly as the forge spells it. A mismatch creates a second, ' +
@@ -117,7 +118,12 @@ export function registerUserTools(
         admin: z
           .boolean()
           .optional()
-          .describe('Make the account an instance administrator.'),
+          .describe(
+            'Make the account an instance administrator. Grants access to every ' +
+              'repository, secret and agent on the server, so passing true asks ' +
+              'a person first.'
+          ),
+        confirm_token: confirmTokenParam.optional(),
       }),
       annotations: {
         // Additive. It can grant instance admin in the same call, which is a
@@ -128,16 +134,44 @@ export function registerUserTools(
         openWorldHint: false,
       },
     },
-    async ({ login, email, admin }) =>
+    async ({ login, email, admin, confirm_token }, mcp) =>
       run(async () => {
-        const body: Record<string, unknown> = { login };
-        if (email !== undefined) body.email = email;
-        if (admin !== undefined) body.admin = admin;
-        return jsonResult({
-          user: summarizeUser(
-            (await api.post('/users', body)) as Record<string, unknown>
-          ),
-        });
+        const create = async (): Promise<CallToolResult> => {
+          const body: Record<string, unknown> = { login };
+          if (email !== undefined) body.email = email;
+          if (admin !== undefined) body.admin = admin;
+          return jsonResult({
+            user: summarizeUser(
+              (await api.post('/users', body)) as Record<string, unknown>
+            ),
+          });
+        };
+
+        // Guarded on the same field, and only that field, as update_user right
+        // below. Until this call, `update_user(admin: true)` asked and
+        // `create_user(admin: true)` did not — the same privilege by the same
+        // flag, with a dialog in front of one of them. The description even
+        // advertised the gap: "which is how you make someone an admin before
+        // they first log in."
+        if (admin === true) {
+          return guarded(
+            server,
+            mcp,
+            approval,
+            confirmations,
+            {
+              tool: 'create_user',
+              targets: [login, 'admin'],
+              what: `create the account "${identifier(login, 'login')}" as an instance administrator`,
+              consequence:
+                'An instance administrator reads and writes every repository, ' +
+                'secret and agent on this server, and can grant the same to others.',
+              confirmToken: confirm_token,
+            },
+            create
+          );
+        }
+        return create();
       })
   );
 

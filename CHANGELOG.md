@@ -16,11 +16,43 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- The twenty tools that need a confirmation now **ask the user**, on clients that
+- The tools that need a confirmation now **ask the user**, on clients that
   can show a prompt. The two-call `confirm_token` remains for clients that
   cannot, so nothing that works today stops working — but where a person can be
   asked, one is, instead of a token that only proves the same call was made
   twice.
+
+- **Two more places ask**, and both were gaps the code itself pointed at.
+
+  `create_user` takes an `admin` flag and did not ask, while `update_user` right
+  beside it asks on exactly that flag — the same privilege, granted the same way,
+  with a dialog in front of one of them. The description even advertised it:
+  "which is how you make someone an admin before they first log in." It is now
+  guarded on the same field and only that field.
+
+  `chown_repository` transfers which forge token a repository's pipelines run
+  under, so the calling account's reach over the forge becomes the repository's
+  reach. `delete_user` already cited that in its own reasoning; the tool that
+  performs the transfer did not ask.
+
+- `ELICITATION` switches the dialog off — `false` sends a client that could have
+  been asked down the two-call-token path instead. For a scheduled job or a test
+  harness, where a dialog is the wrong shape rather than an unwanted one.
+
+  It does **not** remove the guard: there is no setting in which a guarded call
+  goes unannounced. Two deliberate rough edges come with it. The variable is
+  **not prefixed**, so one `export ELICITATION=false` reaches every MCP server in
+  the environment — which is why a server started with it off prints a line
+  saying so, and why the fallback text names the server instead of blaming a
+  client that was working fine. And a value that is neither `true` nor `false`
+  **stops the server**, through the same `fail()` every other refusal in
+  `config.ts` uses: it is the only variable here that defaults to _on_. It is read
+  after `WOODPECKER_TOKEN` is wiped from the environment, so that exit cannot
+  leave the token behind.
+
+- A `docs/guide/approval.md` page. `test/docs.test.ts` compared the 👤 marks in
+  the tool reference against the real `confirm_token` schemas and failed until the
+  page named the two new tools, which is exactly what it is for.
 
 ### Changed
 

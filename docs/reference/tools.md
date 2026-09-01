@@ -10,9 +10,14 @@ Three markers recur:
 - **essential** — part of the `essential` preset.
 - 🛡 **admin** — needs an instance administrator. Woodpecker answers any other
   account with 403; `get_current_user` says which you have.
-- 👤 **two-step** — the first call returns a confirmation token bound to those
-  exact arguments and does nothing else; a second call carrying the token acts.
-  The token is single-use and expires after five minutes.
+- 👤 **asks a person** — through MCP elicitation, a dialog the model cannot answer
+  on its behalf, and which nothing proceeds without. Where the client cannot show
+  one, the first call returns a `confirm_token` bound to those exact arguments and
+  does nothing else; a second call carrying it acts. That token is single-use,
+  expires after five minutes, and proves only that the call was made twice with
+  the same arguments — the fallback text says so. `ELICITATION=false` takes it
+  deliberately; it never removes the guard. See
+  [Asking a person](/guide/approval).
 
 Repository ids are numeric. `lookup_repository` turns an `owner/name` pair into
 one; nothing in the web UI shows it.
@@ -108,11 +113,16 @@ Parameters: `repo_id`, `to`, `confirm_token`.
 
 ### `chown_repository`
 
-Makes this account the repository's owner in Woodpecker. The owner's forge token
-is what Woodpecker uses to read the repository and report build status, so this
-is the fix when the previous owner left.
+👤 — Makes this account the repository's owner in Woodpecker. The owner's forge
+token is what Woodpecker uses to read the repository and report build status, so
+this is the fix when the previous owner left.
 
-Parameters: `repo_id`.
+Asked about because of what the ownership *is*: every pipeline of this repository
+afterwards runs under the calling account's forge token, so its reach over the
+forge becomes this repository's reach. `delete_user` already cites that in its own
+reasoning; the tool that performs the transfer did not ask.
+
+Parameters: `repo_id`, `confirm_token`.
 
 ### `delete_repository`
 
@@ -449,19 +459,23 @@ Parameters: `login`, `forge_id`, `forge_remote_id`.
 
 ### `create_user`
 
-🛡 — Registers an account ahead of its first login. This creates nothing in the
-forge and grants no access there — it is how you make someone an administrator
-before they first log in. A login that does not match the forge's spelling
-creates a second, unused account rather than the one you meant.
+🛡👤 (when granting admin) — Registers an account ahead of its first login. This
+creates nothing in the forge and grants no access there — it is how you make
+someone an administrator before they first log in. A login that does not match the
+forge's spelling creates a second, unused account rather than the one you meant.
 
-Parameters: `login`, `email`, `admin`.
+The same field, and only that field, as `update_user` below. Until this was added,
+`update_user(admin: true)` asked and `create_user(admin: true)` did not — the same
+privilege by the same flag, with a dialog in front of one of them.
+
+Parameters: `login`, `email`, `admin`, `confirm_token`.
 
 ### `update_user`
 
 🛡👤 (when granting admin) — Changes email or the admin flag. Granting
 `admin` gives full control of the instance, including every secret of every
-repository, which is why that one field is two-step. Correcting an email applies
-on the first call.
+repository, which is why that one field asks. Correcting an email applies on the
+first call.
 
 Parameters: `login`, `email`, `admin`, `confirm_token`.
 

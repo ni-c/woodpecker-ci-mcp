@@ -15,6 +15,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     token: TOKEN,
     insecureTls: false,
     readOnly: false,
+    elicitation: true,
     allowTools: undefined,
     denyTools: undefined,
     ...overrides,

@@ -16,7 +16,7 @@ engine — it runs your pipelines, and this reads and drives them.
 Lets MCP clients like Claude Code, Claude Desktop or Codex see which pipelines
 failed, read the build log of the step that broke, and act on it — restart it,
 cancel a runaway, approve a blocked one, rotate a secret, fix a cron — with the
-irreversible operations behind a confirmation token and the write tools
+irreversible operations put to a person first and the write tools
 switchable off entirely.
 
 71 tools is the ceiling, not the floor: `WOODPECKER_ALLOW_TOOLS=essential`
@@ -75,6 +75,7 @@ in the API.
 | `WOODPECKER_ALLOW_TOOLS`  | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |
 | `WOODPECKER_DENY_TOOLS`   | no       | Same syntax; removed from whatever `WOODPECKER_ALLOW_TOOLS` left                   |
 | `WOODPECKER_INSECURE_TLS` | no       | `true` accepts self-signed certificates (scoped to this connection)                |
+| `ELICITATION`             | no       | `false` replaces the approval dialog with the two-call token. **Not prefixed**     |
 
 `WOODPECKER_URL` is the server root, not the API root:
 `https://woodpecker.example.com`, not `https://woodpecker.example.com/api`. Both
@@ -178,7 +179,9 @@ that does not respond.
 ## Tools
 
 Read tools are always registered. 🛡 marks the ones that need an instance
-administrator; 👤 marks the ones that ask for a confirmation token before acting.
+administrator; 👤 marks the ones that **ask a person** before acting, through MCP
+elicitation, falling back to a two-call `confirm_token` where the client cannot
+show a dialog.
 The [tool reference](https://woodpecker-ci-mcp.ni-c.de/reference/tools) has the
 parameters.
 
@@ -196,7 +199,7 @@ parameters.
 | `update_repository` 👤       | Config file, timeout, visibility, approval mode; 👤 to grant trust |
 | `repair_repository` 👤       | Re-installs the webhook; 👤 only for the whole-instance variant    |
 | `move_repository` 👤         | Follows a repository that moved in the forge                       |
-| `chown_repository`           | Takes ownership, so the token Woodpecker uses is yours             |
+| `chown_repository` 👤        | Takes ownership, so the token Woodpecker uses is yours             |
 | `delete_repository` 👤       | Removes it from Woodpecker with all its history                    |
 
 ### Pipelines and logs
@@ -254,7 +257,7 @@ parameters.
 | `delete_organization` 🛡👤      | Removes it with its org-level secrets, registries and agents |
 | `list_users` 🛡                 | Accounts that have ever logged in                            |
 | `get_user` 🛡                   | One account — `forge_id` is required                         |
-| `create_user` 🛡                | Pre-creates a record, e.g. to grant admin before first login |
+| `create_user` 🛡👤              | Pre-creates a record; 👤 only when it grants admin           |
 | `update_user` 🛡👤              | Changes email; 👤 to grant admin                             |
 | `delete_user` 🛡👤              | Removes an account — transfer its repositories first         |
 | `list_agents` 🛡                | Build agents, with tokens redacted                           |
@@ -292,15 +295,22 @@ parameters.
 
 ## Safety
 
-- **Twenty operations are two-step.** Every `delete_*`, plus `move_repository`,
-  the whole-instance `repair_repository`, `update_forge`, `pause_queue` and
-  `approve_pipeline` — and four more only in the direction that escalates:
-  `update_user` granting `admin`, `update_repository` granting a `trusted_*`
-  flag, `update_secret` overwriting a value, and `set_log_level` silencing the
-  server. The first call returns a short-lived confirmation token bound to those
-  exact arguments; only a second call carrying it acts. A token for one
-  repository is not a token for another, and a token for one tool is not a token
-  for another.
+- **Twenty-two operations ask a person.** Every `delete_*`, plus
+  `move_repository`, `chown_repository`, the whole-instance `repair_repository`,
+  `update_forge`, `pause_queue` and `approve_pipeline` — and five more only in the
+  direction that escalates: `update_user` granting `admin`, `create_user` creating
+  one, `update_repository` granting a `trusted_*` flag, `update_secret`
+  overwriting a value, and `set_log_level` silencing the server.
+
+  Where the client supports MCP elicitation that is a real dialog the model cannot
+  answer on its behalf. Where it does not, the first call returns a short-lived
+  token bound to those exact arguments and only a second call carrying it acts —
+  which proves the call was made twice with the same arguments and nothing more,
+  and the text says so. Either way an approval for one repository is not one for
+  another, and one for a tool is not one for another. `ELICITATION=false` takes the
+  fallback deliberately; it never removes the guard. See
+  [Asking a person](https://woodpecker-ci-mcp.ni-c.de/guide/approval).
+
 - **Agent tokens are redacted on read** — see above. `create_agent` is the
   exception, by necessity.
 - **Secret values and registry passwords are never returned**, and not because

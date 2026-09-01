@@ -530,8 +530,13 @@ export function registerRepoTools(
       description:
         "Makes the authenticated account the repository's owner in Woodpecker. The " +
         "owner's forge token is what Woodpecker uses to read the repository and " +
-        'report build status, so this is the fix when the previous owner left.',
-      inputSchema: z.object({ repo_id: repoIdParam }),
+        'report build status, so this is the fix when the previous owner left. ' +
+        'Asks a person first; where the client cannot show a dialog, call once ' +
+        'to receive a token and again with it.',
+      inputSchema: z.object({
+        repo_id: repoIdParam,
+        confirm_token: confirmTokenParam.optional(),
+      }),
       annotations: {
         // Transfers which forge token the pipelines run under. The previous
         // owner relationship is not kept anywhere.
@@ -541,10 +546,32 @@ export function registerRepoTools(
         openWorldHint: false,
       },
     },
-    async ({ repo_id }) =>
+    async ({ repo_id, confirm_token }, mcp) =>
       run(async () =>
-        budgetedJsonResult(
-          objectOf(await api.post(`/repos/${repo_id}/chown`), 'repository')
+        // Guarded because of what the ownership *is*: every pipeline of this
+        // repository afterwards runs under the calling account's forge token,
+        // so its reach over the forge becomes this repository's reach.
+        // `delete_user` already cites that in its own reasoning; the tool that
+        // performs the transfer did not ask.
+        guarded(
+          server,
+          mcp,
+          approval,
+          confirmations,
+          {
+            tool: 'chown_repository',
+            targets: [String(repo_id)],
+            what: `take ownership of repository ${repo_id}`,
+            consequence:
+              'Every pipeline of this repository will run under the calling ' +
+              "account's forge token from now on, and the previous owner " +
+              'relationship is not kept anywhere.',
+            confirmToken: confirm_token,
+          },
+          async () =>
+            budgetedJsonResult(
+              objectOf(await api.post(`/repos/${repo_id}/chown`), 'repository')
+            )
         )
       )
   );

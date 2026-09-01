@@ -107,6 +107,7 @@ const CASES: Record<string, Case> = {
     args: { repo_id: REPO_ID },
     expect: `POST /repos/${REPO_ID}/chown`,
     reply: { json: repo },
+    guarded: true,
   },
   delete_repository: {
     args: { repo_id: REPO_ID },

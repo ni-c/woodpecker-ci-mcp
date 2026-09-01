@@ -30,7 +30,7 @@ features:
   - title: Only the tools you want
     details: 'WOODPECKER_READ_ONLY=true registers the 34 read tools and nothing else. WOODPECKER_ALLOW_TOOLS cuts finer — essential for a curated eight, your own comma-separated list, or a whole family with list_* — and WOODPECKER_DENY_TOOLS subtracts. Whatever is filtered out does not exist on the protocol rather than failing when called, and a name that matches no tool stops the server at startup instead of quietly going missing.'
   - title: Safe by default
-    details: Fifteen irreversible operations need a server-issued confirmation token, agent tokens are redacted on read, build logs are marked untrusted, and read-only mode simply does not register the write tools.
+    details: 'Twenty-two irreversible operations ask a person first, through MCP elicitation — a dialog the model cannot answer on its behalf, falling back to a server-issued token bound to the exact arguments where the client cannot show one. Agent tokens are redacted on read, build logs are marked untrusted, and read-only mode simply does not register the write tools.'
 ---
 
 <figure class="diagram">
@@ -55,7 +55,7 @@ features:
   <rect class="node-accent" x="272" y="60" width="186" height="100" rx="10" />
   <text class="label-title" x="365" y="93" text-anchor="middle">woodpecker-ci-mcp</text>
   <text class="label-muted" x="365" y="113" text-anchor="middle">71 tools, 8 essential</text>
-  <text class="label-muted" x="365" y="133" text-anchor="middle">confirm tokens</text>
+  <text class="label-muted" x="365" y="133" text-anchor="middle">asks a person</text>
 
   <rect class="node" x="550" y="70" width="150" height="80" rx="10" />
   <text class="label-title" x="625" y="103" text-anchor="middle">Woodpecker</text>

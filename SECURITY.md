@@ -48,5 +48,11 @@ Treat every environment variable this server reads as a secret. The MCP client
 process, and therefore the model driving it, sees every tool result — do not point
 this server at a system whose data you would not put in a model's context.
 
-Fifteen operations that cannot be undone require a server-generated confirmation
-token bound to the exact arguments; a model cannot satisfy that gate on its own.
+Twenty-two operations that cannot be undone **ask a person** through MCP
+elicitation: a dialog raised by the server and shown by the client, which the model
+cannot answer on its behalf, and which nothing proceeds without. Where the client
+cannot show one they fall back to a server-generated token bound to the exact
+arguments, which proves the call was made twice with the same arguments and nothing
+more; the fallback text says so. `ELICITATION=false` moves a capable client onto it
+deliberately — it does not remove the guard, and the server prints one line at
+startup saying it is off.

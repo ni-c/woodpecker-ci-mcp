@@ -237,8 +237,9 @@ describe('optional arguments reach the API', () => {
   });
 
   it('sends email and admin when creating a user', async () => {
+    // admin: true is guarded, so this has to get past the dialog first.
     const stub = stubFetch({ 'POST /users': { json: {} } });
-    await call(await connect(), 'create_user', {
+    await call(await connect({}, 'accept'), 'create_user', {
       login: 'octocat',
       email: 'octocat@example.com',
       admin: true,
