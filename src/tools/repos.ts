@@ -480,7 +480,15 @@ export function registerRepoTools(
       description:
         'Tells Woodpecker that a repository moved to a different owner or name in ' +
         'the forge. It does NOT move anything in the forge — do that first, then ' +
-        'call this so Woodpecker follows. Two-step.',
+        'call this so Woodpecker follows. Two-step. ' +
+        'IMPORTANT, verified against 3.11: this endpoint performs the move and ' +
+        'THEN answers HTTP 500 ("could not determine repo for permission") when ' +
+        'the caller is an instance administrator. The move has happened — read ' +
+        'the repository back with get_repository before deciding anything, and do ' +
+        'not retry, which would move it a second time. Most of the time the call ' +
+        'is not needed at all: forges that send webhooks report a rename and ' +
+        'Woodpecker follows it by itself, and calling this afterwards fails on a ' +
+        'duplicate redirection.',
       inputSchema: z.object({
         repo_id: repoIdParam,
         to: repoFullNameParam.describe(
