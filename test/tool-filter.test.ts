@@ -1,3 +1,14 @@
+/**
+ * What this repository still has to prove about its tool filter.
+ *
+ * The filter lives in `mcp-tool-allowlist` and is tested there: pattern syntax,
+ * the preset, how a rejected entry is quoted back, the shape of every message.
+ * Repeating that here would test the dependency.
+ *
+ * What only this repository can assert is the wiring — that the catalogue names
+ * exactly the tools the server registers, that the messages name *these*
+ * variables, and that a filtered tool is really gone rather than merely hidden.
+ */
 import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -9,7 +20,7 @@ import {
 
 import type { Config } from '../src/config.js';
 import { createServer } from '../src/server.js';
-import { ToolFilterError } from '../src/tool-filter.js';
+import { ToolFilterError } from 'mcp-tool-allowlist';
 import { stubFetch, testConfig } from './harness.js';
 
 /** The tools a server built with this configuration actually offers. */
@@ -134,34 +145,10 @@ describe('the tool filter', () => {
     expect(names).toContain('get_pipeline');
   });
 
-  it('ignores empty entries and stray commas', async () => {
-    expect(await toolNames({ allowTools: 'get_pipeline,,' })).toEqual([
-      'get_pipeline',
-    ]);
-  });
-
-  it('treats an empty value as unset rather than as "allow nothing"', async () => {
-    expect(await toolNames({ allowTools: '   ' })).toHaveLength(
-      ALL_TOOLS.length
-    );
-  });
-
-  it('accepts an upper-cased name from a shell that mangled it', async () => {
-    expect(await toolNames({ allowTools: 'GET_PIPELINE' })).toEqual([
-      'get_pipeline',
-    ]);
-  });
-
   it('refuses a name no tool has', () => {
     expect(() =>
       createServer(testConfig({ allowTools: 'get_piplines' }))
     ).toThrow(ToolFilterError);
-  });
-
-  it('refuses a malformed pattern instead of matching nothing forever', () => {
-    expect(() =>
-      createServer(testConfig({ allowTools: '*_pipeline' }))
-    ).toThrow(/trailing "\*"/);
   });
 
   it('refuses a selection that would leave no tools at all', () => {

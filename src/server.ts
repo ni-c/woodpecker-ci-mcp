@@ -1,10 +1,12 @@
 import { createRequire } from 'node:module';
 import { McpServer } from '@modelcontextprotocol/server';
+import { buildToolFilter, installToolFilter } from 'mcp-tool-allowlist';
+
+import { ALL_TOOLS, ESSENTIAL_TOOLS, READ_TOOLS } from './tools/catalogue.js';
 
 import { WoodpeckerApi } from './api.js';
 import type { Config } from './config.js';
 import { ConfirmationStore } from './confirm.js';
-import { buildToolFilter, installToolFilter } from './tool-filter.js';
 import { registerAccountTools } from './tools/account.js';
 import { registerAgentTools } from './tools/agents.js';
 import type { ToolContext } from './tools/context.js';
@@ -55,7 +57,25 @@ const MODULES = [
 export function createServer(config: Config): McpServer {
   // Before anything is built: an unusable tool list should fail on the way in,
   // not leave a server running with tools quietly missing.
-  const filter = buildToolFilter(config);
+  const filter = buildToolFilter({
+    allowTools: config.allowTools,
+    denyTools: config.denyTools,
+    catalogue: {
+      all: ALL_TOOLS,
+      essential: ESSENTIAL_TOOLS,
+      ungated: READ_TOOLS,
+    },
+    names: {
+      allow: 'WOODPECKER_ALLOW_TOOLS',
+      deny: 'WOODPECKER_DENY_TOOLS',
+      server: 'woodpecker-ci-mcp',
+    },
+    gate: {
+      closed: config.readOnly,
+      variable: 'WOODPECKER_READ_ONLY',
+      noun: 'read-only mode',
+    },
+  });
 
   const context: ToolContext = {
     api: new WoodpeckerApi(config),
