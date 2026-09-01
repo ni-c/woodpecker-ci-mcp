@@ -55,7 +55,7 @@ const customLabelsParam = z
 
 export function registerAgentTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_agents',
@@ -243,9 +243,12 @@ export function registerAgentTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ agent_id, org_id, confirm_token }) =>
+    async ({ agent_id, org_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_agent',

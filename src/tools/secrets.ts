@@ -10,7 +10,7 @@ import {
 } from '../schema.js';
 
 import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
+import { identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -40,7 +40,7 @@ const noteParam = z
 
 export function registerSecretTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_secrets',
@@ -172,17 +172,20 @@ export function registerSecretTools(
           ),
       }),
     },
-    async ({
-      scope,
-      repo_id,
-      org_id,
-      name,
-      value,
-      events,
-      images,
-      note,
-      confirm_token,
-    }) =>
+    async (
+      {
+        scope,
+        repo_id,
+        org_id,
+        name,
+        value,
+        events,
+        images,
+        note,
+        confirm_token,
+      },
+      mcp
+    ) =>
       run(async () => {
         const base = scopeBase('secrets', scope, { repo_id, org_id });
         const where = scopeLabel(scope, { repo_id, org_id });
@@ -212,6 +215,9 @@ export function registerSecretTools(
         if (value === undefined) return apply();
 
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'update_secret',
@@ -248,11 +254,14 @@ export function registerSecretTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ scope, repo_id, org_id, name, confirm_token }) =>
+    async ({ scope, repo_id, org_id, name, confirm_token }, mcp) =>
       run(async () => {
         const base = scopeBase('secrets', scope, { repo_id, org_id });
         const where = scopeLabel(scope, { repo_id, org_id });
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_secret',

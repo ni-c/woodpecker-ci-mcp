@@ -20,7 +20,7 @@ import type { ToolContext } from './context.js';
 
 export function registerLogTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'get_step_logs',
@@ -102,9 +102,12 @@ export function registerLogTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ repo_id, number, step_id, confirm_token }) =>
+    async ({ repo_id, number, step_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_step_logs',
@@ -139,9 +142,12 @@ export function registerLogTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ repo_id, number, confirm_token }) =>
+    async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_pipeline_logs',

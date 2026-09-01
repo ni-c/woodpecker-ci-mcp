@@ -56,7 +56,7 @@ const oauthHostParam = httpUrlParam.describe(
 
 export function registerForgeTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_forges',
@@ -159,7 +159,7 @@ export function registerForgeTools(
       }),
       annotations: { idempotentHint: false },
     },
-    async ({ forge_id, confirm_token, ...fields }) =>
+    async ({ forge_id, confirm_token, ...fields }, mcp) =>
       run(async () => {
         const body: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(fields)) {
@@ -169,6 +169,9 @@ export function registerForgeTools(
           return textResult('Nothing to update — pass at least one field.');
         }
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'update_forge',
@@ -199,9 +202,12 @@ export function registerForgeTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ forge_id, confirm_token }) =>
+    async ({ forge_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_forge',

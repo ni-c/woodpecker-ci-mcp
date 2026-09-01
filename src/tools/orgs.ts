@@ -16,7 +16,7 @@ import type { ToolContext } from './context.js';
 
 export function registerOrgTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_organizations',
@@ -105,9 +105,12 @@ export function registerOrgTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ org_id, confirm_token }) =>
+    async ({ org_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_organization',

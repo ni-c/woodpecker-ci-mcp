@@ -8,7 +8,7 @@ import {
 } from '../schema.js';
 
 import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
+import { identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf, summarizeUser } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -33,7 +33,7 @@ const forgeIdQueryParam = z
 
 export function registerUserTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_users',
@@ -154,7 +154,7 @@ export function registerUserTools(
         confirm_token: confirmTokenParam.optional(),
       }),
     },
-    async ({ login, forge_id, email, admin, confirm_token }) =>
+    async ({ login, forge_id, email, admin, confirm_token }, mcp) =>
       run(async () => {
         if (email === undefined && admin === undefined) {
           return textResult('Nothing to update — pass email or admin.');
@@ -166,6 +166,9 @@ export function registerUserTools(
         // hands over the whole instance, so this is the one that stops.
         if (admin === true) {
           return guarded(
+            server,
+            mcp,
+            approval,
             confirmations,
             {
               tool: 'update_user',
@@ -241,9 +244,12 @@ export function registerUserTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ login, forge_id, confirm_token }) =>
+    async ({ login, forge_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_user',

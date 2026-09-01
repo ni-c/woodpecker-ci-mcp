@@ -31,7 +31,7 @@ import type { ToolContext } from './context.js';
 
 export function registerPipelineTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_pipelines',
@@ -314,7 +314,7 @@ export function registerPipelineTools(
       }),
       annotations: { idempotentHint: false },
     },
-    async ({ repo_id, number, confirm_token }) =>
+    async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
         // Two-step on purpose, and this is the tool where it matters most. The
         // model reaches this decision holding a build log it was handed by
@@ -324,6 +324,9 @@ export function registerPipelineTools(
         // repository's secrets. A token that only ever appears in a previous
         // tool result cannot be supplied by the log.
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'approve_pipeline',
@@ -389,9 +392,12 @@ export function registerPipelineTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ repo_id, number, confirm_token }) =>
+    async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_pipeline',

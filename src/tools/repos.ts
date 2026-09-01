@@ -23,7 +23,7 @@ import type { ToolContext } from './context.js';
 
 export function registerRepoTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_repositories',
@@ -320,14 +320,17 @@ export function registerRepoTools(
           ),
       }),
     },
-    async ({
-      repo_id,
-      trusted_network,
-      trusted_volumes,
-      trusted_security,
-      confirm_token,
-      ...fields
-    }) =>
+    async (
+      {
+        repo_id,
+        trusted_network,
+        trusted_volumes,
+        trusted_security,
+        confirm_token,
+        ...fields
+      },
+      mcp
+    ) =>
       run(async () => {
         const body: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(fields)) {
@@ -362,6 +365,9 @@ export function registerRepoTools(
         if (granted.length === 0) return apply();
 
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'update_repository',
@@ -407,10 +413,13 @@ export function registerRepoTools(
       }),
       annotations: { idempotentHint: false },
     },
-    async ({ repo_id, scope, confirm_token }) =>
+    async ({ repo_id, scope, confirm_token }, mcp) =>
       run(async () => {
         if (scope === 'instance') {
           return guarded(
+            server,
+            mcp,
+            approval,
             confirmations,
             {
               tool: 'repair_repository',
@@ -457,9 +466,12 @@ export function registerRepoTools(
       }),
       annotations: { idempotentHint: false },
     },
-    async ({ repo_id, to, confirm_token }) =>
+    async ({ repo_id, to, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'move_repository',
@@ -512,9 +524,12 @@ export function registerRepoTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ repo_id, confirm_token }) =>
+    async ({ repo_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_repository',

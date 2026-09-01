@@ -78,7 +78,7 @@ const timezoneParam = z
 
 export function registerCronTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_crons',
@@ -224,9 +224,12 @@ export function registerCronTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ repo_id, cron_id, confirm_token }) =>
+    async ({ repo_id, cron_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_cron',

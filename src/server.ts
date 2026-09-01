@@ -6,7 +6,7 @@ import { ALL_TOOLS, ESSENTIAL_TOOLS, READ_TOOLS } from './tools/catalogue.js';
 
 import { WoodpeckerApi } from './api.js';
 import type { Config } from './config.js';
-import { ConfirmationStore } from './confirm.js';
+import { ConfirmationStore, createApproval } from 'mcp-approval';
 import { registerAccountTools } from './tools/account.js';
 import { registerAgentTools } from './tools/agents.js';
 import type { ToolContext } from './tools/context.js';
@@ -80,6 +80,9 @@ export function createServer(config: Config): McpServer {
   const context: ToolContext = {
     api: new WoodpeckerApi(config),
     confirmations: new ConfirmationStore(),
+    // One approver per server: it holds the key that seals the request
+    // state carried out through the client and back.
+    approval: createApproval({ server: 'woodpecker-ci-mcp' }),
     readOnly: config.readOnly,
   };
 

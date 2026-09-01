@@ -9,7 +9,7 @@ import {
 } from '../schema.js';
 
 import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
+import { identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -34,7 +34,7 @@ const passwordParam = z
 
 export function registerRegistryTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_registries',
@@ -162,11 +162,14 @@ export function registerRegistryTools(
       }),
       annotations: { destructiveHint: true, idempotentHint: false },
     },
-    async ({ scope, repo_id, org_id, address, confirm_token }) =>
+    async ({ scope, repo_id, org_id, address, confirm_token }, mcp) =>
       run(async () => {
         const base = scopeBase('registries', scope, { repo_id, org_id });
         const where = scopeLabel(scope, { repo_id, org_id });
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_registry',

@@ -17,7 +17,7 @@ import type { ToolContext } from './context.js';
  */
 export function registerServerTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'get_server_info',
@@ -94,9 +94,12 @@ export function registerServerTools(
       inputSchema: z.object({ confirm_token: confirmTokenParam.optional() }),
       annotations: { idempotentHint: true },
     },
-    async ({ confirm_token }) =>
+    async ({ confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'pause_queue',
@@ -167,7 +170,7 @@ export function registerServerTools(
           ),
       }),
     },
-    async ({ level, confirm_token }) =>
+    async ({ level, confirm_token }, mcp) =>
       run(async () => {
         const apply = async (): Promise<CallToolResult> =>
           jsonResult(await api.post('/log-level', { 'log-level': level }));
@@ -180,6 +183,9 @@ export function registerServerTools(
         if (!silencing.includes(level)) return apply();
 
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'set_log_level',
