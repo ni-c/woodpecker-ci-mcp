@@ -7,6 +7,7 @@
 [![license](https://img.shields.io/npm/l/@ni-c/woodpecker-ci-mcp)](LICENSE)
 [![container](https://img.shields.io/badge/ghcr.io-ni--c%2Fwoodpecker--ci--mcp-blue)](https://github.com/ni-c/woodpecker-ci-mcp/pkgs/container/woodpecker-ci-mcp)
 [![docs](https://img.shields.io/badge/docs-woodpecker--ci--mcp.ni--c.de-informational)](https://woodpecker-ci-mcp.ni-c.de)
+[![HTTP • via mcp-hub](https://img.shields.io/badge/HTTP-via%20mcp--hub-6f42c1)](https://mcp-hub.ni-c.de)
 [![sponsor](https://img.shields.io/badge/sponsor-ni--c-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ni-c)
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for
@@ -175,6 +176,38 @@ If your Woodpecker is only resolvable through your host's split DNS, add
 `--dns <resolver>`: a container does not inherit the host's resolver
 configuration, and the public answer for an internal name is usually an address
 that does not respond.
+
+### Through mcp-hub
+
+A client that cannot spawn a local process — ChatGPT connectors, Claude on the web,
+Cursor, LibreChat — reaches woodpecker-ci-mcp through [mcp-hub](https://mcp-hub.ni-c.de): one
+container serves many stdio MCP servers over Streamable HTTP, with an OAuth 2.1 login
+behind a single password and long-lived tokens for the clients that cannot do OAuth. Its
+`/hub` endpoint puts every server behind six meta-tools, so one connector reaches all of
+them without N×tool schemas in the model's context, and it speaks both protocol revisions
+— a question this server asks travels through it to the person at the far end.
+
+Its `/config/mcp.json` uses Claude Code's format, so the entry is the one you already
+have:
+
+```json
+{
+  "mcpServers": {
+    "woodpecker-ci": {
+      "command": "npx",
+      "args": ["-y", "@ni-c/woodpecker-ci-mcp"],
+      "env": {
+        "WOODPECKER_URL": "https://woodpecker.example.com",
+        "WOODPECKER_TOKEN": "…"
+      }
+    }
+  }
+}
+```
+
+`allowTools` and `denyTools` there are the hub's **own** per-server filter, which is not
+the same thing as `*_ALLOW_TOOLS` in `env` — the difference, and the mistake it invites,
+are in the [client guide](https://woodpecker-ci-mcp.ni-c.de/guide/clients#through-mcp-hub).
 
 ## Tools
 
@@ -349,6 +382,11 @@ parameters.
 - The token is deleted from `process.env` once it has been read, is never sent to
   a redirect target, and is never echoed into an error message.
 
+## Documentation
+
+The full guide, tool reference and security notes live at
+**[woodpecker-ci-mcp.ni-c.de](https://woodpecker-ci-mcp.ni-c.de)** (source in [`docs/`](docs/)).
+
 ## Development
 
 ```sh
@@ -365,3 +403,14 @@ npm run lint && npm run build && npm run test:coverage
 The release workflow publishes to npm (Trusted Publishing, with provenance),
 creates the GitHub release from the CHANGELOG section and updates the MCP
 Registry entry.
+
+## Contributing
+
+Issues, discussions and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities please use
+[private reporting](https://github.com/ni-c/woodpecker-ci-mcp/security/advisories/new)
+rather than a public issue; the policy is in [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE) © Willi Thiel
