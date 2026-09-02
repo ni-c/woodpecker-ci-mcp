@@ -1,4 +1,5 @@
 import {
+  expectEveryToolDeclaresOutputSchema,
   expectEveryToolExercised,
   startServer,
   toolCoverage,
@@ -519,11 +520,14 @@ async function statusOf(number: number): Promise<string> {
 
 describe('the fallback path for a client with no dialog', () => {
   it('deletes a secret only after the token comes back', async () => {
-    const refusal = await plain.call('delete_secret', {
-      scope: 'repository',
-      repo_id: repoId,
-      name: 'integration_secret',
-    });
+    // The prompt is an error result: the secret was not deleted, which is what
+    // `isError` says — and a tool that declares an `outputSchema` may not
+    // answer without `structuredContent` unless the result is an error.
+    const refusal = await plain.call(
+      'delete_secret',
+      { scope: 'repository', repo_id: repoId, name: 'integration_secret' },
+      { expectError: /confirm_token=/ }
+    );
     expect(refusal).toContain('confirm_token');
     expect(plain.prompts).toHaveLength(0);
 
@@ -572,6 +576,15 @@ describe('cleaning up', () => {
     });
     await asking.call('delete_repository', { repo_id: repoId });
   }, 120_000);
+});
+
+it('declares an output schema on every tool', async () => {
+  // The unit suite checks the same thing against a stub. Here it is checked
+  // against the server that has just answered every one of these tools against
+  // a real Woodpecker — and each of those answers went through the SDK's
+  // validation against the schema below it.
+  const { tools } = await asking.client.listTools();
+  expectEveryToolDeclaresOutputSchema(tools);
 });
 
 it('exercises every tool in the catalogue', () => {

@@ -5,6 +5,11 @@ One section per tool. All 71 are registered unless you say otherwise:
 `essential` selects the ones marked **essential** below — see
 [choosing the tools that load](/guide/configuration#choosing-the-tools-that-load).
 
+Every tool declares an `outputSchema` and answers with `structuredContent` beside
+the text block, so a client can use a result without parsing prose. The tools
+that report pushed content carry `untrusted: true` and `source: "woodpecker"` as
+fields of that object — build logs are the raw stdout of arbitrary containers.
+
 Three markers recur:
 
 - **essential** — part of the `essential` preset.

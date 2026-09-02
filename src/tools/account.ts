@@ -6,6 +6,7 @@ import {
   summarizeUser,
 } from '../normalize.js';
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 
 import { budgetedUntrustedResult, jsonResult, run } from '../result.js';
 import { READ_ONLY } from './annotations.js';
@@ -34,6 +35,7 @@ export function registerAccountTools(
         'answers 403: the admin-only tools need admin=true here.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () =>
       run(async () =>
@@ -51,6 +53,7 @@ export function registerAccountTools(
         'of everything" call — one request instead of list_pipelines per repository.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async () =>
       run(async () => {

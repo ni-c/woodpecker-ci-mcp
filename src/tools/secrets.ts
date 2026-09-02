@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -14,7 +15,13 @@ import { READ_ONLY } from './annotations.js';
 import { fingerprint, identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf, objectOf, redactSecret } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import {
+  errorResult,
+  budgetedList,
+  jsonResult,
+  run,
+  sentenceResult,
+} from '../result.js';
 import type { ToolContext } from './context.js';
 import { scopeArguments, scopeBase, scopeLabel } from './scope.js';
 
@@ -59,6 +66,7 @@ export function registerSecretTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, page, per_page }) =>
       run(async () => {
@@ -93,6 +101,7 @@ export function registerSecretTools(
         name: secretNameParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, name }) =>
       run(async () => {
@@ -140,6 +149,7 @@ export function registerSecretTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, name, value, events, images, note }) =>
       run(async () => {
@@ -198,6 +208,7 @@ export function registerSecretTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async (
       {
@@ -222,7 +233,7 @@ export function registerSecretTools(
         if (images !== undefined) body.images = images;
         if (note !== undefined) body.note = note;
         if (Object.keys(body).length === 0) {
-          return textResult(
+          return errorResult(
             'Nothing to update — pass value, events, images or note.'
           );
         }
@@ -323,6 +334,7 @@ export function registerSecretTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, name, confirm_token }, mcp) =>
       run(async () => {
@@ -349,7 +361,10 @@ export function registerSecretTools(
           },
           async () => {
             await api.delete(`${base}/${pathSegment(name, 'secret name')}`);
-            return textResult(`Secret "${name}" of ${where} was deleted.`);
+            return sentenceResult(`Secret "${name}" of ${where} was deleted.`, {
+              deleted_secret: name,
+              scope: where,
+            });
           }
         );
       })

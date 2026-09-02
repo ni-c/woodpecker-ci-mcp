@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   budgetedJsonResult,
@@ -6,7 +7,8 @@ import {
   budgetedUntrustedResult,
   jsonResult,
   run,
-  textResult,
+  sentenceResult,
+  errorResult,
 } from '../result.js';
 import {
   confirmTokenParam,
@@ -65,6 +67,7 @@ export function registerRepoTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ scope, include_inactive, name, page, per_page }) =>
       run(async () => {
@@ -94,6 +97,7 @@ export function registerRepoTools(
         'flags, timeout, approval mode, config file path and the extension endpoints.',
       inputSchema: z.object({ repo_id: repoIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ repo_id }) =>
       run(async () =>
@@ -114,6 +118,7 @@ export function registerRepoTools(
         'use list_repositories with include_inactive to find it.',
       inputSchema: z.object({ full_name: repoFullNameParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ full_name }) =>
       run(async () =>
@@ -138,6 +143,7 @@ export function registerRepoTools(
         'was that 403" without guessing.',
       inputSchema: z.object({ repo_id: repoIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ repo_id }) =>
       run(async () =>
@@ -159,6 +165,7 @@ export function registerRepoTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -185,6 +192,7 @@ export function registerRepoTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -228,6 +236,7 @@ export function registerRepoTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ forge_remote_id }) =>
       run(async () =>
@@ -338,6 +347,7 @@ export function registerRepoTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async (
       {
@@ -362,7 +372,7 @@ export function registerRepoTools(
         if (Object.keys(trusted).length > 0) body.trusted = trusted;
 
         if (Object.keys(body).length === 0) {
-          return textResult(
+          return errorResult(
             'Nothing to update — pass at least one field. get_repository shows the ' +
               'current values.'
           );
@@ -476,6 +486,7 @@ export function registerRepoTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, scope, confirm_token }, mcp) =>
       run(async () => {
@@ -497,18 +508,24 @@ export function registerRepoTools(
             },
             async () => {
               await api.post('/repos/repair');
-              return textResult('Repaired every repository on the instance.');
+              return sentenceResult(
+                'Repaired every repository on the instance.',
+                {
+                  repaired: 'instance',
+                }
+              );
             }
           );
         }
         if (repo_id === undefined) {
-          return textResult(
+          return errorResult(
             'repair_repository needs a repo_id, or scope="instance" to repair all of them.'
           );
         }
         await api.post(`/repos/${repo_id}/repair`);
-        return textResult(
-          `Repaired repository ${repo_id}: its forge webhook was re-installed and its data refreshed.`
+        return sentenceResult(
+          `Repaired repository ${repo_id}: its forge webhook was re-installed and its data refreshed.`,
+          { repaired: repo_id }
         );
       })
   );
@@ -544,6 +561,7 @@ export function registerRepoTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, to, confirm_token }, mcp) =>
       run(async () =>
@@ -563,8 +581,9 @@ export function registerRepoTools(
           },
           async () => {
             await api.post(`/repos/${repo_id}/move${query({ to })}`);
-            return textResult(
-              `Repository ${repo_id} now points at the new location.`
+            return sentenceResult(
+              `Repository ${repo_id} now points at the new location.`,
+              { repo_id, moved: true }
             );
           }
         )
@@ -593,6 +612,7 @@ export function registerRepoTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, confirm_token }, mcp) =>
       run(async () =>
@@ -645,6 +665,7 @@ export function registerRepoTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, confirm_token }, mcp) =>
       run(async () =>
@@ -665,8 +686,9 @@ export function registerRepoTools(
           },
           async () => {
             await api.delete(`/repos/${repo_id}`);
-            return textResult(
-              `Repository ${repo_id} was deleted from Woodpecker.`
+            return sentenceResult(
+              `Repository ${repo_id} was deleted from Woodpecker.`,
+              { deleted_repo_id: repo_id }
             );
           }
         )

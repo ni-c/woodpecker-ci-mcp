@@ -16,6 +16,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Every tool declares an `outputSchema` and answers with `structuredContent`
+  beside the text block. A client no longer has to parse prose to use a result —
+  which seventeen of them made unavoidable, since they answered with a sentence.
+  The sentence stays, in the text block. `get_step_logs` keeps its rendered
+  header-plus-log there too, and states the exit code, the line count and the
+  output as fields.
+
+  The tools that report pushed content carry `untrusted: true` and
+  `source: "woodpecker"` as fields, not only as a preamble in the text. Branch
+  names, commit messages, pipeline titles and above all build logs are written
+  by whoever can push, so a client that reads the structured half must not get
+  them unframed. The list follows the call sites.
+
+  Woodpecker's objects are described as open objects with the top-level keys
+  this server builds — the upstream Go models change what they serialize
+  between releases, and a strict shape would turn that into a failed call.
+
+### Changed
+
+- Eight "Nothing to update — pass …" answers are error results rather than
+  plain ones. Each read like an answer while being a refusal.
+
+- A result too large to shrink is an error rather than an envelope saying so.
+  The envelope was a different shape from what the tool declares it returns,
+  which the SDK refuses.
+
+- The two-call `confirm_token` prompt is an error result. What was asked for did
+  not happen, which is what `isError` says. The text is unchanged and still
+  carries the token.
+
+### Added
+
 - The tools that need a confirmation now **ask the user**, on clients that
   can show a prompt. The two-call `confirm_token` remains for clients that
   cannot, so nothing that works today stops working — but where a person can be

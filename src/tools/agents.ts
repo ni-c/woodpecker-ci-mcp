@@ -1,11 +1,13 @@
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   budgetedList,
   jsonResult,
   rawJsonResult,
   run,
-  textResult,
+  sentenceResult,
+  errorResult,
 } from '../result.js';
 import {
   agentIdParam,
@@ -77,6 +79,7 @@ export function registerAgentTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ org_id, page, per_page }) =>
       run(async () => {
@@ -108,6 +111,7 @@ export function registerAgentTools(
         'its token needs a new one, which means delete_agent and create_agent.',
       inputSchema: z.object({ agent_id: agentIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ agent_id }) =>
       run(async () =>
@@ -128,6 +132,7 @@ export function registerAgentTools(
         'out what is occupying a busy agent, and which pipeline to cancel.',
       inputSchema: z.object({ agent_id: agentIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ agent_id }) =>
       run(async () =>
@@ -168,6 +173,7 @@ export function registerAgentTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ name, org_id, no_schedule, custom_labels }) =>
       run(async () => {
@@ -216,6 +222,7 @@ export function registerAgentTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ agent_id, org_id, name, no_schedule, custom_labels }) =>
       run(async () => {
@@ -224,7 +231,7 @@ export function registerAgentTools(
         if (no_schedule !== undefined) body.no_schedule = no_schedule;
         if (custom_labels !== undefined) body.custom_labels = custom_labels;
         if (Object.keys(body).length === 0) {
-          return textResult(
+          return errorResult(
             'Nothing to update — pass name, no_schedule or custom_labels.'
           );
         }
@@ -264,6 +271,7 @@ export function registerAgentTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ agent_id, org_id, confirm_token }, mcp) =>
       run(async () =>
@@ -287,8 +295,9 @@ export function registerAgentTools(
                 ? `/agents/${agent_id}`
                 : `/orgs/${org_id}/agents/${agent_id}`
             );
-            return textResult(
-              `Agent ${agent_id} was deleted and its token invalidated.`
+            return sentenceResult(
+              `Agent ${agent_id} was deleted and its token invalidated.`,
+              { deleted_agent_id: agent_id, token_invalidated: true }
             );
           }
         )

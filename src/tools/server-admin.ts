@@ -1,9 +1,10 @@
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 
 import { guarded } from '../guard.js';
 import { READ_ONLY } from './annotations.js';
-import { jsonResult, run, textResult } from '../result.js';
+import { jsonResult, run, sentenceResult } from '../result.js';
 import { confirmTokenParam } from '../schema.js';
 import type { ToolContext } from './context.js';
 
@@ -31,6 +32,7 @@ export function registerServerTools(
         'problem is WOODPECKER_TOKEN.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () =>
       run(async () => {
@@ -65,6 +67,7 @@ export function registerServerTools(
         'starting".',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () => run(async () => jsonResult(await api.get('/queue/info')))
   );
@@ -77,6 +80,7 @@ export function registerServerTools(
         'Returns the current log level of the Woodpecker server. Admin only.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () => run(async () => jsonResult(await api.get('/log-level')))
   );
@@ -101,6 +105,7 @@ export function registerServerTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ confirm_token }, mcp) =>
       run(async () =>
@@ -120,8 +125,9 @@ export function registerServerTools(
           },
           async () => {
             await api.post('/queue/pause');
-            return textResult(
-              'The queue is paused. Nothing new will be scheduled until resume_queue.'
+            return sentenceResult(
+              'The queue is paused. Nothing new will be scheduled until resume_queue.',
+              { queue_paused: true }
             );
           }
         )
@@ -143,11 +149,14 @@ export function registerServerTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async () =>
       run(async () => {
         await api.post('/queue/resume');
-        return textResult('The queue is running again.');
+        return sentenceResult('The queue is running again.', {
+          queue_paused: false,
+        });
       })
   );
 
@@ -191,6 +200,7 @@ export function registerServerTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ level, confirm_token }, mcp) =>
       run(async () => {

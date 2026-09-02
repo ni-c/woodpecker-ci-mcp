@@ -37,6 +37,21 @@ async function listTools() {
   return (await client.listTools()).tools;
 }
 
+/** The full tool descriptors a server built with this configuration offers. */
+async function toolDescriptors(overrides: Partial<Config> = {}) {
+  stubFetch();
+  const server = createServer(testConfig(overrides));
+  const client = new Client({ name: 'test-client', version: '0.0.0' });
+  const [clientTransport, serverTransport] =
+    InMemoryTransport.createLinkedPair();
+  await Promise.all([
+    server.connect(serverTransport),
+    client.connect(clientTransport),
+  ]);
+  const { tools } = await client.listTools();
+  return tools;
+}
+
 /** The tools a server built with this configuration actually offers. */
 async function toolNames(overrides: Partial<Config> = {}): Promise<string[]> {
   stubFetch();
@@ -99,6 +114,50 @@ describe('the catalogue', () => {
         `${tool.name} carries the wrong readOnlyHint`
       ).toEqual({ name: tool.name, readOnly: isRead });
     }
+  });
+
+  it('declares an output schema on every tool', async () => {
+    // The same argument as the annotations below, one field along. A tool that
+    // says nothing about its result forces a client to parse prose to find out
+    // what it got, and the SDK sends no `structuredContent` at all for a tool
+    // that declared no schema — seventeen tools here answered with a sentence.
+    const tools = await toolDescriptors();
+    expect(tools.length).toBeGreaterThan(0);
+    for (const tool of tools) {
+      expect(tool.outputSchema, tool.name).toBeDefined();
+      // An object root, not merely a schema. SEP-2106 allows an array or a
+      // scalar, but a 2025-era client is served that same tool with the schema
+      // rewritten to `{result: …}` — so it would answer in two shapes
+      // depending on who asked.
+      expect(tool.outputSchema?.type, tool.name).toBe('object');
+    }
+  });
+
+  it('says in the schema which results carry pushed content', async () => {
+    // Branch names, commit messages, pipeline titles and above all build logs
+    // — the raw stdout of arbitrary containers — are written by whoever can
+    // push. A client that reads only `structuredContent` must not get them
+    // unframed, and a field is something it can check where a preamble is not.
+    //
+    // The list follows the call sites: a tool is marked exactly when it
+    // already routed its answer through the untrusted wrapper.
+    const tools = await toolDescriptors();
+    const marked = tools.filter((tool) => {
+      const properties = tool.outputSchema?.properties as
+        Record<string, { const?: unknown }> | undefined;
+      return properties?.untrusted !== undefined;
+    });
+    expect(marked.length).toBeGreaterThan(0);
+    for (const tool of marked) {
+      const properties = tool.outputSchema?.properties as Record<
+        string,
+        { const?: unknown }
+      >;
+      expect(properties.source?.const, tool.name).toBe('woodpecker');
+    }
+    // get_step_logs is the one that matters most, so it is named rather than
+    // left to the count.
+    expect(marked.map((tool) => tool.name)).toContain('get_step_logs');
   });
 
   it('declares all four annotation hints on every tool', async () => {

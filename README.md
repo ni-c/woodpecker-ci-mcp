@@ -182,6 +182,25 @@ Read tools are always registered. 🛡 marks the ones that need an instance
 administrator; 👤 marks the ones that **ask a person** before acting, through MCP
 elicitation, falling back to a two-call `confirm_token` where the client cannot
 show a dialog.
+
+Every tool declares an `outputSchema` and answers with `structuredContent`
+alongside the text block, so a client can use the result without parsing prose.
+Seventeen tools that answered with a sentence — _"Pipeline 12 was cancelled."_ —
+now answer with the fields as well, and the sentence stays where a reader wants
+it. `get_step_logs` keeps its rendered header-plus-log in the text and states
+the exit code, the line count and the output as fields.
+
+The tools that report pushed content carry `untrusted: true` and
+`source: "woodpecker"` as fields; branch names, commit messages, pipeline titles
+and above all build logs — the raw stdout of arbitrary containers — are written
+by whoever can push. The list follows the call sites: a tool is marked exactly
+when it already routed its answer through the untrusted wrapper.
+
+Woodpecker's objects are described as open objects with the top-level keys this
+server builds. The upstream Go models change what they serialize between
+releases, and the SDK validates each result against its schema before it goes
+out — a strict shape would turn a field a release adds into a tool that fails
+outright.
 The [tool reference](https://woodpecker-ci-mcp.ni-c.de/reference/tools) has the
 parameters.
 

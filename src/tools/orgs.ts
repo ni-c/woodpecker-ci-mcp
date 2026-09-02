@@ -7,12 +7,13 @@ import {
   perPageParam,
 } from '../schema.js';
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 
 import { pathSegment, query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import { budgetedList, jsonResult, run, sentenceResult } from '../result.js';
 import type { ToolContext } from './context.js';
 
 export function registerOrgTools(
@@ -33,6 +34,7 @@ export function registerOrgTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -50,6 +52,7 @@ export function registerOrgTools(
       description: 'Returns one organization by its numeric id.',
       inputSchema: z.object({ org_id: orgIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ org_id }) =>
       run(async () => jsonResult(await api.get(`/orgs/${org_id}`)))
@@ -64,6 +67,7 @@ export function registerOrgTools(
         'call needs, including org-scoped secrets and registries.',
       inputSchema: z.object({ name: orgFullNameParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ name }) =>
       run(async () =>
@@ -84,6 +88,7 @@ export function registerOrgTools(
         'admin. Org-level secrets and agents need admin here.',
       inputSchema: z.object({ org_id: orgIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ org_id }) =>
       run(async () => jsonResult(await api.get(`/orgs/${org_id}/permissions`)))
@@ -113,6 +118,7 @@ export function registerOrgTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ org_id, confirm_token }, mcp) =>
       run(async () =>
@@ -133,7 +139,9 @@ export function registerOrgTools(
           },
           async () => {
             await api.delete(`/orgs/${org_id}`);
-            return textResult(`Organization ${org_id} was deleted.`);
+            return sentenceResult(`Organization ${org_id} was deleted.`, {
+              deleted_org_id: org_id,
+            });
           }
         )
       )

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -13,7 +14,13 @@ import { READ_ONLY } from './annotations.js';
 import { fingerprint, identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import {
+  errorResult,
+  budgetedList,
+  jsonResult,
+  run,
+  sentenceResult,
+} from '../result.js';
 import type { ToolContext } from './context.js';
 import { scopeArguments, scopeBase, scopeLabel } from './scope.js';
 
@@ -51,6 +58,7 @@ export function registerRegistryTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, page, per_page }) =>
       run(async () => {
@@ -77,6 +85,7 @@ export function registerRegistryTools(
         address: registryAddressParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, address }) =>
       run(async () => {
@@ -111,6 +120,7 @@ export function registerRegistryTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, address, username, password }) =>
       run(async () => {
@@ -151,6 +161,7 @@ export function registerRegistryTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async (
       { scope, repo_id, org_id, address, username, password, confirm_token },
@@ -163,7 +174,7 @@ export function registerRegistryTools(
         if (username !== undefined) body.username = username;
         if (password !== undefined) body.password = password;
         if (Object.keys(body).length === 0) {
-          return textResult('Nothing to update — pass username or password.');
+          return errorResult('Nothing to update — pass username or password.');
         }
 
         const apply = async (): Promise<CallToolResult> =>
@@ -230,6 +241,7 @@ export function registerRegistryTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ scope, repo_id, org_id, address, confirm_token }, mcp) =>
       run(async () => {
@@ -258,8 +270,9 @@ export function registerRegistryTools(
             await api.delete(
               `${base}/${pathSegment(address, 'registry address')}`
             );
-            return textResult(
-              `Registry credentials for "${address}" of ${where} were deleted.`
+            return sentenceResult(
+              `Registry credentials for "${address}" of ${where} were deleted.`,
+              { deleted_registry: address, scope: where }
             );
           }
         );

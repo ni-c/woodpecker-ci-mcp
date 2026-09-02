@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   listOf,
@@ -10,7 +11,7 @@ import {
   budgetedList,
   budgetedUntrustedResult,
   run,
-  textResult,
+  sentenceResult,
 } from '../result.js';
 import {
   branchParam,
@@ -88,6 +89,7 @@ export function registerPipelineTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ repo_id, page, per_page, ...filters }) =>
       run(async () => {
@@ -117,6 +119,7 @@ export function registerPipelineTools(
         number: pipelineNumberParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -144,6 +147,7 @@ export function registerPipelineTools(
         number: pipelineNumberParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -211,6 +215,7 @@ export function registerPipelineTools(
         number: pipelineNumberParam,
       }),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async ({ repo_id, number }) =>
       run(async () =>
@@ -230,6 +235,7 @@ export function registerPipelineTools(
         'get_queue_info adds the agent side of the same picture.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async () =>
       run(async () =>
@@ -276,6 +282,7 @@ export function registerPipelineTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: marked(),
     },
     async ({ repo_id, branch, message, variables }) =>
       run(async () => {
@@ -326,6 +333,7 @@ export function registerPipelineTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: marked(),
     },
     async ({ repo_id, number, event, deploy_to }) =>
       run(async () => {
@@ -361,11 +369,15 @@ export function registerPipelineTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, number }) =>
       run(async () => {
         await api.post(`/repos/${repo_id}/pipelines/${number}/cancel`);
-        return textResult(`Pipeline ${number} was cancelled.`);
+        return sentenceResult(`Pipeline ${number} was cancelled.`, {
+          pipeline: number,
+          cancelled: true,
+        });
       })
   );
 
@@ -392,6 +404,7 @@ export function registerPipelineTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: marked(),
     },
     async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
@@ -449,6 +462,7 @@ export function registerPipelineTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: marked(),
     },
     async ({ repo_id, number }) =>
       run(async () => {
@@ -484,6 +498,7 @@ export function registerPipelineTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, number, confirm_token }, mcp) =>
       run(async () =>
@@ -502,7 +517,9 @@ export function registerPipelineTools(
           },
           async () => {
             await api.delete(`/repos/${repo_id}/pipelines/${number}`);
-            return textResult(`Pipeline ${number} was deleted.`);
+            return sentenceResult(`Pipeline ${number} was deleted.`, {
+              deleted_pipeline: number,
+            });
           }
         )
       )

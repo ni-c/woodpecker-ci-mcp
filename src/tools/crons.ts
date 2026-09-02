@@ -1,11 +1,13 @@
 import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   budgetedList,
   budgetedUntrustedResult,
   jsonResult,
   run,
-  textResult,
+  sentenceResult,
+  errorResult,
 } from '../result.js';
 import {
   branchParam,
@@ -94,6 +96,7 @@ export function registerCronTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -114,6 +117,7 @@ export function registerCronTools(
       description: 'Returns one cron job, including the variables it passes.',
       inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
@@ -149,6 +153,7 @@ export function registerCronTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, name, schedule, branch, timezone }) =>
       run(async () => {
@@ -186,6 +191,7 @@ export function registerCronTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, cron_id, ...fields }) =>
       run(async () => {
@@ -194,7 +200,7 @@ export function registerCronTools(
           if (value !== undefined) body[key] = value;
         }
         if (Object.keys(body).length === 0) {
-          return textResult(
+          return errorResult(
             'Nothing to update — pass name, schedule, branch, timezone or enabled.'
           );
         }
@@ -223,6 +229,7 @@ export function registerCronTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: marked(),
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
@@ -254,6 +261,7 @@ export function registerCronTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, cron_id, confirm_token }, mcp) =>
       run(async () =>
@@ -273,7 +281,9 @@ export function registerCronTools(
           },
           async () => {
             await api.delete(`/repos/${repo_id}/cron/${cron_id}`);
-            return textResult(`Cron job ${cron_id} was deleted.`);
+            return sentenceResult(`Cron job ${cron_id} was deleted.`, {
+              deleted_cron_id: cron_id,
+            });
           }
         )
       )

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -13,7 +14,13 @@ import { READ_ONLY } from './annotations.js';
 import { fingerprint } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import {
+  errorResult,
+  budgetedList,
+  jsonResult,
+  run,
+  sentenceResult,
+} from '../result.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -72,6 +79,7 @@ export function registerForgeTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -91,6 +99,7 @@ export function registerForgeTools(
         'not part of the read model and is never returned.',
       inputSchema: z.object({ forge_id: forgeIdParam }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ forge_id }) =>
       run(async () => jsonResult(await api.get(`/forges/${forge_id}`)))
@@ -138,6 +147,7 @@ export function registerForgeTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async (fields) =>
       run(async () => {
@@ -175,6 +185,7 @@ export function registerForgeTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ forge_id, confirm_token, ...fields }, mcp) =>
       run(async () => {
@@ -183,7 +194,7 @@ export function registerForgeTools(
           if (value !== undefined) body[key] = value;
         }
         if (Object.keys(body).length === 0) {
-          return textResult('Nothing to update — pass at least one field.');
+          return errorResult('Nothing to update — pass at least one field.');
         }
         return guarded(
           server,
@@ -226,6 +237,7 @@ export function registerForgeTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ forge_id, confirm_token }, mcp) =>
       run(async () =>
@@ -245,7 +257,9 @@ export function registerForgeTools(
           },
           async () => {
             await api.delete(`/forges/${forge_id}`);
-            return textResult(`Forge ${forge_id} was deleted.`);
+            return sentenceResult(`Forge ${forge_id} was deleted.`, {
+              deleted_forge_id: forge_id,
+            });
           }
         )
       )

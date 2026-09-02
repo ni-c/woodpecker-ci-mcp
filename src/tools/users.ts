@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { plain } from '../output-schema.js';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
@@ -12,7 +13,13 @@ import { READ_ONLY } from './annotations.js';
 import { identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf, summarizeUser } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import {
+  errorResult,
+  budgetedList,
+  jsonResult,
+  run,
+  sentenceResult,
+} from '../result.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -49,6 +56,7 @@ export function registerUserTools(
         per_page: perPageParam.optional(),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -78,6 +86,7 @@ export function registerUserTools(
           .describe('Disambiguates further if the forge reuses logins.'),
       }),
       annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ login, forge_id, forge_remote_id }) =>
       run(async () =>
@@ -133,6 +142,7 @@ export function registerUserTools(
         idempotentHint: false,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ login, email, admin, confirm_token }, mcp) =>
       run(async () => {
@@ -203,11 +213,12 @@ export function registerUserTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ login, forge_id, email, admin, confirm_token }, mcp) =>
       run(async () => {
         if (email === undefined && admin === undefined) {
-          return textResult('Nothing to update — pass email or admin.');
+          return errorResult('Nothing to update — pass email or admin.');
         }
 
         // Only granting admin is guarded. Making every email correction
@@ -301,6 +312,7 @@ export function registerUserTools(
         idempotentHint: true,
         openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ login, forge_id, confirm_token }, mcp) =>
       run(async () =>
@@ -323,7 +335,9 @@ export function registerUserTools(
             await api.delete(
               `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
             );
-            return textResult(`Account "${login}" was deleted.`);
+            return sentenceResult(`Account "${login}" was deleted.`, {
+              deleted_login: login,
+            });
           }
         )
       )

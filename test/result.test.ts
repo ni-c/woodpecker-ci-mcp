@@ -4,6 +4,7 @@ import { WoodpeckerApiError } from '../src/api.js';
 import { REDACTED } from '../src/normalize.js';
 import {
   budgetedJson,
+  ResultTooLargeError,
   budgetedList,
   MAX_RESULT_BYTES,
   run,
@@ -163,11 +164,12 @@ describe('budgetedJson', () => {
     () => {
       // No array to drop entries from, so the string pass has to run out of
       // candidates and fall through to the honest give-up rather than spinning.
+      // The give-up used to be an envelope carrying an `error` field, which
+      // is a different shape from what a tool declares it returns — and the
+      // SDK refuses that. So it throws, and `run` turns it into an error.
       const wide: Record<string, string> = {};
       for (let i = 0; i < 600; i++) wide[`step_${i}`] = 'x'.repeat(300);
-      expect(JSON.parse(budgetedJson(wide)).error).toContain(
-        'result size budget'
-      );
+      expect(() => budgetedJson(wide)).toThrow(ResultTooLargeError);
     }
   );
 
@@ -194,9 +196,8 @@ describe('budgetedJson', () => {
   it('gives up honestly when there is nothing left to shorten', () => {
     const wide: Record<string, number> = {};
     for (let i = 0; i < 20_000; i++) wide[`key_number_${i}`] = i;
-    expect(JSON.parse(budgetedJson(wide)).error).toContain(
-      'result size budget'
-    );
+    expect(() => budgetedJson(wide)).toThrow(ResultTooLargeError);
+    expect(() => budgetedJson(wide)).toThrow(/result size budget/);
   });
 
   it('scrubs credential-shaped fields wherever they sit', () => {
