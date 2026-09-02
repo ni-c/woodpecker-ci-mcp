@@ -89,8 +89,21 @@ export function parseElicitation(raw: string | undefined): boolean {
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const rawUrl = env.WOODPECKER_URL;
   const token = env.WOODPECKER_TOKEN;
+  // Strict on purpose, and the asymmetry with the line below is the point.
+  // Turning certificate verification *off* is a permission, and a permission
+  // should be granted only by the exact word that grants it — an operator who
+  // wrote `=yes` here and meant it can write `=true`, and one who wrote it by
+  // accident gets the safe behaviour.
   const insecureTls = env.WOODPECKER_INSECURE_TLS === 'true';
-  const readOnly = env.WOODPECKER_READ_ONLY === 'true';
+  // Tolerant on purpose, for the mirror-image reason. This one is a protection,
+  // and `WOODPECKER_READ_ONLY=1` is what a Docker Compose file or a systemd unit
+  // is most likely to say. Under an exact `=== 'true'` that spelling left every
+  // write tool registered while the operator believed the server could not
+  // write — a failure that announces itself only by something being deleted.
+  // Matches the fleet: hetzner-dns-mcp reads its own read-only switch this way.
+  const readOnly = /^(1|true|yes)$/i.test(
+    env.WOODPECKER_READ_ONLY?.trim() ?? ''
+  );
   const allowTools = env.WOODPECKER_ALLOW_TOOLS;
   const denyTools = env.WOODPECKER_DENY_TOOLS;
 

@@ -211,7 +211,7 @@ export function registerServerTools(
           confirmations,
           {
             tool: 'set_log_level',
-            targets: [level],
+            targets: [`level:${level}`],
             what: `set the server log level to ${level}`,
             consequence:
               'The server stops recording warnings and errors, so whatever ' +

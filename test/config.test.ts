@@ -107,9 +107,35 @@ describe('loadConfig', () => {
     expect(config.insecureTls).toBe(true);
   });
 
-  it('treats anything other than "true" as false', () => {
-    const config = loadConfig(env({ WOODPECKER_READ_ONLY: '1' }));
-    expect(config.readOnly).toBe(false);
+  // A protection and a permission are parsed differently on purpose, so both
+  // halves are asserted here: `WOODPECKER_READ_ONLY=1` — what a Compose file or
+  // a systemd unit is most likely to say — used to leave every write tool
+  // registered while the operator believed the server could not write.
+  it.each(['1', 'yes', 'TRUE', ' true '])(
+    'reads %o as read-only, because a protection must not fail silently open',
+    (value) => {
+      expect(loadConfig(env({ WOODPECKER_READ_ONLY: value })).readOnly).toBe(
+        true
+      );
+    }
+  );
+
+  it('still refuses a value that grants nothing', () => {
+    expect(loadConfig(env({ WOODPECKER_READ_ONLY: 'no' })).readOnly).toBe(
+      false
+    );
+    expect(loadConfig(env({ WOODPECKER_READ_ONLY: '' })).readOnly).toBe(false);
+  });
+
+  it('keeps the TLS switch strict, because that one grants a permission', () => {
+    // Mirror image of the above. Turning certificate verification off should
+    // take the exact word that turns it off, never a near miss.
+    expect(loadConfig(env({ WOODPECKER_INSECURE_TLS: '1' })).insecureTls).toBe(
+      false
+    );
+    expect(
+      loadConfig(env({ WOODPECKER_INSECURE_TLS: 'yes' })).insecureTls
+    ).toBe(false);
   });
 
   it('warns about plain http to a remote host', () => {

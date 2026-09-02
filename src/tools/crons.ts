@@ -212,7 +212,8 @@ export function registerCronTools(
         "Starts the cron job's pipeline immediately, without waiting for its " +
         'schedule. The schedule itself is unchanged, and the run counts as a cron ' +
         'event — which is the point: this is how you test that a nightly job works ' +
-        'before waiting a night for it.',
+        'before waiting a night for it. Every call is another run; a retry after a ' +
+        'timeout starts a second one.',
       inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
       annotations: {
         // Runs a build now, outside the schedule. Same reasoning as
@@ -263,7 +264,7 @@ export function registerCronTools(
           confirmations,
           {
             tool: 'delete_cron',
-            targets: [String(repo_id), String(cron_id)],
+            targets: [`repo:${repo_id}`, `cron:${cron_id}`],
             what: `delete cron job ${cron_id} of repository ${repo_id}`,
             consequence:
               'The schedule is gone. Nothing will notice that the job stopped ' +

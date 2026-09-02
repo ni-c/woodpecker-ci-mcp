@@ -120,7 +120,11 @@ export function registerLogTools(
           confirmations,
           {
             tool: 'delete_step_logs',
-            targets: [String(repo_id), String(number), String(step_id)],
+            targets: [
+              `repo:${repo_id}`,
+              `pipeline:${number}`,
+              `step:${step_id}`,
+            ],
             what: `delete the logs of step ${step_id} in pipeline ${number}`,
             consequence:
               'The output of that step is gone and cannot be restored.',
@@ -168,7 +172,7 @@ export function registerLogTools(
           confirmations,
           {
             tool: 'delete_pipeline_logs',
-            targets: [String(repo_id), String(number)],
+            targets: [`repo:${repo_id}`, `pipeline:${number}`],
             what: `delete every step log of pipeline ${number} in repository ${repo_id}`,
             consequence:
               'The output of all its steps is gone and cannot be restored.',

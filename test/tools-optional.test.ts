@@ -50,6 +50,10 @@ describe('optional arguments reach the API', () => {
 
   it('passes every repository setting that was given', async () => {
     const stub = stubFetch({
+      // Read first: update_repository compares require_approval and visibility
+      // against the current settings to decide whether the change loosens
+      // anything, so a call naming either field costs one extra request.
+      [`GET /repos/${REPO_ID}`]: { json: repoFixture() },
       [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
     });
     await confirmed(await connect(), 'update_repository', {
@@ -63,7 +67,7 @@ describe('optional arguments reach the API', () => {
       trusted_volumes: true,
       trusted_security: false,
     });
-    expect(stub.calls[0]?.body).toEqual({
+    expect(stub.calls.find((c) => c.method === 'PATCH')?.body).toEqual({
       config_file: '.woodpecker/',
       visibility: 'internal',
       allow_pr: false,
@@ -133,15 +137,21 @@ describe('optional arguments reach the API', () => {
   });
 
   it('replaces the event list wholesale on a secret update', async () => {
-    const stub = stubFetch({ 'PATCH /secrets/TOKEN': { json: {} } });
-    await call(await connect(), 'update_secret', {
+    const stub = stubFetch({
+      // This update adds pull_request to a secret that only applied to push and
+      // clears an image restriction, so it is the guarded direction and the
+      // current state is read first to establish that.
+      'GET /secrets/TOKEN': { json: { events: ['push'], images: ['alpine'] } },
+      'PATCH /secrets/TOKEN': { json: {} },
+    });
+    await confirmed(await connect(), 'update_secret', {
       scope: 'global',
       name: 'TOKEN',
       events: ['push', 'pull_request'],
       images: [],
       note: 'x',
     });
-    expect(stub.calls[0]?.body).toEqual({
+    expect(stub.calls.find((c) => c.method === 'PATCH')?.body).toEqual({
       events: ['push', 'pull_request'],
       images: [],
       note: 'x',
@@ -159,7 +169,9 @@ describe('optional arguments reach the API', () => {
 
   it('sends both registry fields when both are given', async () => {
     const stub = stubFetch({ 'PATCH /registries/docker.io': { json: {} } });
-    await call(await connect(), 'update_registry', {
+    // Two-step: a password is being replaced, and the old one is not readable
+    // anywhere once it is gone.
+    await confirmed(await connect(), 'update_registry', {
       scope: 'global',
       address: 'docker.io',
       username: 'bot',

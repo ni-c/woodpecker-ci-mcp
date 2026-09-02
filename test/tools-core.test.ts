@@ -344,3 +344,50 @@ describe('read-only mode', () => {
     expect(tools.map((t) => t.name)).not.toContain('delete_repository');
   });
 });
+
+describe('get_pipeline_config bounds what it decodes', () => {
+  // Both numbers here are decided by the repository, not by an input schema:
+  // `config_file` may name a directory, so the list is however many YAML files
+  // someone put in `.woodpecker/`, and each is as long as they made it. The
+  // result budget runs at the end, after every byte has been base64-decoded and
+  // walked by stripControlCharacters — which is the work these bounds exist to
+  // stop, and the one thing a single-threaded server cannot get back.
+  const config = (name: string, content: string) => ({
+    name,
+    hash: 'h',
+    data: Buffer.from(content, 'utf8').toString('base64'),
+  });
+
+  it('reads at most twenty files and says how many there were', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}/pipelines/${PIPELINE_NUMBER}/config`]: {
+        json: Array.from({ length: 100 }, (_, i) =>
+          config(`.woodpecker/${i}.yml`, 'steps: []')
+        ),
+      },
+    });
+    const parsed = jsonOf(
+      await call(await connect(), 'get_pipeline_config', {
+        repo_id: REPO_ID,
+        number: PIPELINE_NUMBER,
+      })
+    ) as { configs: unknown[]; truncated: { total: number } };
+    expect(parsed.configs).toHaveLength(20);
+    expect(parsed.truncated.total).toBe(100);
+  });
+
+  it('cuts a single oversized file and says it did', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}/pipelines/${PIPELINE_NUMBER}/config`]: {
+        json: [config('.woodpecker.yml', `# ${'x'.repeat(4_000_000)}`)],
+      },
+    });
+    const parsed = jsonOf(
+      await call(await connect(), 'get_pipeline_config', {
+        repo_id: REPO_ID,
+        number: PIPELINE_NUMBER,
+      })
+    ) as { configs: { truncated?: string }[] };
+    expect(parsed.configs[0]?.truncated).toContain('bytes of this');
+  });
+});

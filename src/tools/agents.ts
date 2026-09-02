@@ -274,7 +274,7 @@ export function registerAgentTools(
           confirmations,
           {
             tool: 'delete_agent',
-            targets: [String(agent_id), String(org_id ?? '')],
+            targets: [`agent:${agent_id}`, `org:${org_id ?? ''}`],
             what: `delete agent ${agent_id}`,
             consequence:
               'Its token stops working, the pipelines it is running are lost, and ' +

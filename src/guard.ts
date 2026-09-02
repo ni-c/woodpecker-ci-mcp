@@ -4,10 +4,10 @@ import type {
   McpServer,
   ServerContext,
 } from '@modelcontextprotocol/server';
-import { setResourceKey } from 'mcp-approval';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 
 import { errorResult } from './result.js';
+import { tupleResourceKey } from './resource-key.js';
 
 /**
  * Wraps an operation that must not happen without someone agreeing to it.
@@ -24,7 +24,16 @@ import { errorResult } from './result.js';
  * `targets` is what the confirmation is bound to. It must contain everything
  * that decides *what* gets touched, not just the object's id: `repair_repository`
  * takes a scope as well as an id, and a token issued for one repository must not
- * authorise the whole-instance variant.
+ * authorise the whole-instance variant. Where the call also decides *with what* —
+ * a body, a set of fields — the fingerprint of that body belongs in `targets`
+ * too, or the second call is free to send a different one.
+ *
+ * Every entry carries its role as a prefix (`repo:5`, `pipeline:12`), and the key
+ * is built by `tupleResourceKey` rather than the library's `setResourceKey`,
+ * which sorts. Both, because these targets are ordered tuples of small integers
+ * and either mistake alone lets a confirmation for one pair authorise the pair
+ * read backwards — see `tupleResourceKey` for what that costs on
+ * `approve_pipeline`.
  *
  * Nothing coming from the API — no name, description or commit message — may be
  * passed into `what` or `consequence`. Those strings are read by a model, and
@@ -47,7 +56,7 @@ export async function guarded(
   const outcome = await approval.requestApproval(server, mcp, confirmations, {
     what: options.what,
     consequence: options.consequence,
-    resourceKey: setResourceKey(options.tool, options.targets),
+    resourceKey: tupleResourceKey(options.tool, options.targets),
     token: options.confirmToken,
     toolName: options.tool,
     hint: 'Tick to go ahead, leave it to cancel.',

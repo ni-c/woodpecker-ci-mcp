@@ -161,7 +161,7 @@ export function registerUserTools(
             confirmations,
             {
               tool: 'create_user',
-              targets: [login, 'admin'],
+              targets: [`login:${login}`, 'admin'],
               what: `create the account "${identifier(login, 'login')}" as an instance administrator`,
               consequence:
                 'An instance administrator reads and writes every repository, ' +
@@ -222,7 +222,7 @@ export function registerUserTools(
             confirmations,
             {
               tool: 'update_user',
-              targets: [login, String(forge_id ?? ''), 'admin'],
+              targets: [`login:${login}`, `forge:${forge_id ?? ''}`, 'admin'],
               what: `make the account "${identifier(login, 'login')}" an instance administrator`,
               consequence:
                 'An instance administrator reads and writes every repository, ' +
@@ -311,7 +311,7 @@ export function registerUserTools(
           confirmations,
           {
             tool: 'delete_user',
-            targets: [login, String(forge_id)],
+            targets: [`login:${login}`, `forge:${forge_id}`],
             what: `delete the Woodpecker account "${identifier(login, 'login')}"`,
             consequence:
               'Repositories this account owns keep pointing at its forge token, ' +

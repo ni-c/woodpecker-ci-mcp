@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import type { McpServer } from '@modelcontextprotocol/server';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   pageParam,
@@ -10,7 +10,7 @@ import {
 
 import { pathSegment, query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
-import { identifier } from '../resource-key.js';
+import { fingerprint, identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -136,6 +136,12 @@ export function registerRegistryTools(
         address: registryAddressParam,
         username: usernameParam.optional(),
         password: passwordParam.optional(),
+        confirm_token: confirmTokenParam
+          .optional()
+          .describe(
+            'Required only when passing "password"; changing the username alone ' +
+              'applies on the first call.'
+          ),
       }),
       annotations: {
         // Replaces stored registry credentials; the old password is not
@@ -146,20 +152,59 @@ export function registerRegistryTools(
         openWorldHint: false,
       },
     },
-    async ({ scope, repo_id, org_id, address, username, password }) =>
+    async (
+      { scope, repo_id, org_id, address, username, password, confirm_token },
+      mcp
+    ) =>
       run(async () => {
         const base = scopeBase('registries', scope, { repo_id, org_id });
+        const where = scopeLabel(scope, { repo_id, org_id });
         const body: Record<string, unknown> = {};
         if (username !== undefined) body.username = username;
         if (password !== undefined) body.password = password;
         if (Object.keys(body).length === 0) {
           return textResult('Nothing to update — pass username or password.');
         }
-        const updated = await api.patch(
-          `${base}/${pathSegment(address, 'registry address')}`,
-          body
+
+        const apply = async (): Promise<CallToolResult> =>
+          jsonResult({
+            registry: await api.patch(
+              `${base}/${pathSegment(address, 'registry address')}`,
+              body
+            ),
+          });
+
+        // The password half is guarded for the reason this tool's own
+        // annotation already states: Woodpecker strips it from every response,
+        // so the value being overwritten is not readable anywhere and nothing
+        // brings it back. That is the same sentence update_secret is guarded by
+        // and the same damage delete_registry — two-step, right below — does.
+        // Correcting a username destroys nothing and stays one call.
+        if (password === undefined) return apply();
+
+        return guarded(
+          server,
+          mcp,
+          approval,
+          confirmations,
+          {
+            tool: 'update_registry',
+            targets: [
+              `scope:${scope}`,
+              `repo:${repo_id ?? ''}`,
+              `org:${org_id ?? ''}`,
+              `address:${address}`,
+              `body:${fingerprint(body)}`,
+            ],
+            what: `replace the password stored for the registry "${identifier(address, 'registry address')}" of ${where}`,
+            consequence:
+              'The current password cannot be recovered — Woodpecker strips it ' +
+              'from every response. If the new one is wrong, pipelines pulling ' +
+              'private images from that registry fail at the pull step.',
+            confirmToken: confirm_token,
+          },
+          apply
         );
-        return jsonResult({ registry: updated });
       })
   );
 
@@ -198,10 +243,10 @@ export function registerRegistryTools(
           {
             tool: 'delete_registry',
             targets: [
-              scope,
-              String(repo_id ?? ''),
-              String(org_id ?? ''),
-              address,
+              `scope:${scope}`,
+              `repo:${repo_id ?? ''}`,
+              `org:${org_id ?? ''}`,
+              `address:${address}`,
             ],
             what: `delete the registry credentials for "${identifier(address, 'registry address')}" of ${where}`,
             consequence:

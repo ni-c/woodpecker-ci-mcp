@@ -10,6 +10,7 @@ import {
 
 import { query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
+import { fingerprint } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import { budgetedList, jsonResult, run, textResult } from '../result.js';
@@ -191,7 +192,7 @@ export function registerForgeTools(
           confirmations,
           {
             tool: 'update_forge',
-            targets: [String(forge_id), ...Object.keys(body).sort()],
+            targets: [`forge:${forge_id}`, `body:${fingerprint(body)}`],
             what: `change the configuration of forge ${forge_id}`,
             consequence:
               'Every login and every repository read goes through this forge. A ' +
@@ -235,7 +236,7 @@ export function registerForgeTools(
           confirmations,
           {
             tool: 'delete_forge',
-            targets: [String(forge_id)],
+            targets: [`forge:${forge_id}`],
             what: `delete forge ${forge_id} from Woodpecker`,
             consequence:
               'Accounts that authenticate through this forge can no longer sign in, ' +

@@ -18,6 +18,7 @@ import {
 
 import { pathSegment, query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
+import { fingerprint } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf, objectOf, summarizeRepo } from '../normalize.js';
 import type { ToolContext } from './context.js';
@@ -324,8 +325,9 @@ export function registerRepoTools(
         confirm_token: confirmTokenParam
           .optional()
           .describe(
-            'Required only when granting one of the trusted_* flags; every other ' +
-              'field applies on the first call.'
+            'Required when granting one of the trusted_* flags, when lowering ' +
+              '"require_approval", or when setting visibility to "public"; every ' +
+              'other change applies on the first call.'
           ),
       }),
       annotations: {
@@ -379,7 +381,30 @@ export function registerRepoTools(
         const granted = Object.entries(trusted)
           .filter(([, value]) => value)
           .map(([key]) => key);
-        if (granted.length === 0) return apply();
+
+        // Same rule, applied to the two fields that are the fork gate itself.
+        // `require_approval` decides whether a pipeline built from a fork waits
+        // for a person before it runs with this repository's secrets — the exact
+        // decision approve_pipeline is guarded for — and `visibility: public`
+        // decides who may then read the log that build writes. Setting the two
+        // together turns the sharpest gate in this server off in one unguarded
+        // call, which made every confirmation on approve_pipeline optional.
+        // Tightening either stays free, in the same direction-aware way.
+        const loosened = await loosening(repo_id, fields);
+
+        if (granted.length === 0 && loosened.length === 0) return apply();
+
+        const what = [
+          granted.length > 0
+            ? `grant repository ${repo_id} elevated trust (${granted.join(', ')})`
+            : undefined,
+          loosened.includes('require_approval')
+            ? `stop requiring approval for repository ${repo_id} (require_approval="${fields.require_approval}")`
+            : undefined,
+          loosened.includes('visibility')
+            ? `make the pipelines of repository ${repo_id} publicly readable`
+            : undefined,
+        ].filter((part): part is string => part !== undefined);
 
         return guarded(
           server,
@@ -389,14 +414,29 @@ export function registerRepoTools(
           {
             tool: 'update_repository',
             targets: [
-              String(repo_id),
+              `repo:${repo_id}`,
               ...granted.map((key) => `trusted:${key}`),
+              ...loosened.map((key) => `loosen:${key}`),
+              `body:${fingerprint(body)}`,
             ],
-            what: `grant repository ${repo_id} elevated trust (${granted.join(', ')})`,
-            consequence:
-              'Pipelines of this repository may then use the host network, mount ' +
-              'host paths and run privileged containers. Anyone who can push to ' +
-              'it can take over the agent that runs it.',
+            what: what.join(', and '),
+            consequence: [
+              granted.length > 0
+                ? 'Pipelines of this repository may then use the host network, ' +
+                  'mount host paths and run privileged containers. Anyone who ' +
+                  'can push to it can take over the agent that runs it.'
+                : undefined,
+              loosened.includes('require_approval')
+                ? 'Fewer pipelines wait for a person, so code from a fork can run ' +
+                  "with this repository's secrets without anyone approving it."
+                : undefined,
+              loosened.includes('visibility')
+                ? 'Build logs become readable by anyone, including whatever a step ' +
+                  'printed into them.'
+                : undefined,
+            ]
+              .filter(Boolean)
+              .join(' '),
             confirmToken: confirm_token,
           },
           apply
@@ -514,7 +554,7 @@ export function registerRepoTools(
           confirmations,
           {
             tool: 'move_repository',
-            targets: [String(repo_id), to],
+            targets: [`repo:${repo_id}`, `to:${to}`],
             what: `point Woodpecker's repository ${repo_id} at a different forge repository`,
             consequence:
               'If the repository was not actually moved in the forge first, ' +
@@ -568,7 +608,7 @@ export function registerRepoTools(
           confirmations,
           {
             tool: 'chown_repository',
-            targets: [String(repo_id)],
+            targets: [`repo:${repo_id}`],
             what: `take ownership of repository ${repo_id}`,
             consequence:
               'Every pipeline of this repository will run under the calling ' +
@@ -615,7 +655,7 @@ export function registerRepoTools(
           confirmations,
           {
             tool: 'delete_repository',
-            targets: [String(repo_id)],
+            targets: [`repo:${repo_id}`],
             what: `delete repository ${repo_id} from Woodpecker`,
             consequence:
               'Its pipeline history, build logs, secrets, registries and cron jobs ' +
@@ -632,4 +672,52 @@ export function registerRepoTools(
         )
       )
   );
+  /**
+   * The strictness order of `require_approval`, weakest first.
+   *
+   * "none" runs everything unattended; "forks" — the default — stops the
+   * pipelines that carry someone else's code; "pull_requests" adds the ones from
+   * this repository's own branches; "all_events" stops everything.
+   */
+  const APPROVAL_ORDER = ['none', 'forks', 'pull_requests', 'all_events'];
+
+  /**
+   * Which confidentiality boundaries of a repository this update lowers.
+   *
+   * A comparison, so the current settings have to be read — and only when one of
+   * the two fields is in the call, so an ordinary timeout or config_file change
+   * is still a single request. A repository whose `require_approval` this server
+   * does not recognise counts as stricter than anything, so an unexpected
+   * upstream value asks rather than waves the change through.
+   *
+   * Nothing read here reaches the confirmation text; the sentence a person sees
+   * is built from the enum values in this file's own input schema.
+   */
+  async function loosening(
+    repo_id: number,
+    fields: {
+      visibility?: string | undefined;
+      require_approval?: string | undefined;
+    }
+  ): Promise<string[]> {
+    if (
+      fields.visibility === undefined &&
+      fields.require_approval === undefined
+    ) {
+      return [];
+    }
+    const current = objectOf(await api.get(`/repos/${repo_id}`), 'repository');
+    const lowered: string[] = [];
+    if (fields.require_approval !== undefined) {
+      const index = APPROVAL_ORDER.indexOf(String(current.require_approval));
+      const before = index === -1 ? APPROVAL_ORDER.length : index;
+      if (APPROVAL_ORDER.indexOf(fields.require_approval) < before) {
+        lowered.push('require_approval');
+      }
+    }
+    if (fields.visibility === 'public' && current.visibility !== 'public') {
+      lowered.push('visibility');
+    }
+    return lowered;
+  }
 }

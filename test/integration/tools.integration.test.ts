@@ -460,10 +460,14 @@ describe('a move, in the only shape this endpoint accepts', () => {
     // So the target here is a second real repository, and the call is expected
     // to report an error.
     await createRepository('integration-moved', PIPELINE);
+    // Named rather than left as a bare `true`: an error that is only asserted
+    // to be *an* error passes just as well when the route is wrong, the schema
+    // rejects an argument, or the container is not up. This is the specific
+    // 500 described above, and nothing else counts.
     await asking.call(
       'move_repository',
       { repo_id: repoId, to: `${USERNAME}/integration-moved` },
-      { expectError: true }
+      { expectError: 'could not determine repo for permission' }
     );
     // ...and it moved anyway. That is the finding: the error is raised after
     // the work is done, so a caller that retries moves a repository twice.

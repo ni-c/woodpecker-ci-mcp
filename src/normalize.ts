@@ -73,8 +73,9 @@ export function redactAgent(agent: Json): Json {
  *
  * Deliberately not on the list: a bare `value`. It is the natural name for any
  * key/value pair — pipeline variables, cron metadata — and redacting it would
- * damage far more legitimate data than it protects. Woodpecker's secret `value`
- * is stripped where secrets are actually handled, in `tools/secrets.ts`.
+ * damage far more legitimate data than it protects. The one shape where `value`
+ * really is a credential is a Woodpecker secret, and that is handled by
+ * {@link redactSecret} at the two tools that return one.
  */
 const SENSITIVE_KEYS = new Set([
   'token',
@@ -93,6 +94,26 @@ const SENSITIVE_KEYS = new Set([
 ]);
 
 export const REDACTED = '(redacted by woodpecker-ci-mcp)';
+
+/**
+ * What a secret looks like from the outside.
+ *
+ * On a healthy instance this changes nothing: `model.Secret.Copy()` strips the
+ * value before it is serialized, which is why every description here can promise
+ * that values are never returned. That promise was the *only* thing holding —
+ * `get_secret` handed the response through and `list_secrets` budgeted it, and
+ * neither removed anything, while the comment on {@link SENSITIVE_KEYS} claimed
+ * the field was stripped "where secrets are actually handled". Confidentiality
+ * that depends entirely on the other side's Go model is a claim, not a control;
+ * this is the control.
+ *
+ * Replaced rather than dropped, like {@link redactAgent}: an absent field reads
+ * as "this secret has no value", which is never true.
+ */
+export function redactSecret(secret: Json): Json {
+  if (secret.value === undefined) return secret;
+  return { ...secret, value: REDACTED };
+}
 
 /**
  * Replaces credential-shaped fields anywhere in a response.

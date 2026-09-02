@@ -123,7 +123,7 @@ export function registerOrgTools(
           confirmations,
           {
             tool: 'delete_organization',
-            targets: [String(org_id)],
+            targets: [`org:${org_id}`],
             what: `delete organization ${org_id} from Woodpecker`,
             consequence:
               'Its organization-level secrets, registries and agents go with it. ' +
