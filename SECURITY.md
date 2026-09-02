@@ -48,7 +48,7 @@ Treat every environment variable this server reads as a secret. The MCP client
 process, and therefore the model driving it, sees every tool result — do not point
 this server at a system whose data you would not put in a model's context.
 
-Twenty-two operations that cannot be undone **ask a person** through MCP
+Twenty-three operations that cannot be undone **ask a person** through MCP
 elicitation: a dialog raised by the server and shown by the client, which the model
 cannot answer on its behalf, and which nothing proceeds without. Where the client
 cannot show one they fall back to a server-generated token bound to the exact

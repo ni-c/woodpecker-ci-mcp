@@ -83,16 +83,25 @@ Parameters: `forge_remote_id`.
 
 ### `update_repository`
 
-👤 (when granting trust) — Changes Woodpecker's settings for a repository.
-Only the fields you pass are touched. `trusted_network`, `trusted_volumes` and
-`trusted_security` are folded into the nested object the API expects; all three
-are admin-only and `trusted_security` lets a pipeline take over the agent host.
-Setting any of them to `true` is two-step; withdrawing trust, and every other
-field, applies on the first call.
+👤 (when granting trust, lowering `require_approval` or going `public`) —
+Changes Woodpecker's settings for a repository. Only the fields you pass are
+touched. `trusted_network`, `trusted_volumes` and `trusted_security` are folded
+into the nested object the API expects; all three are admin-only and
+`trusted_security` lets a pipeline take over the agent host.
+
+Three changes are two-step, and all three for the same reason: they widen what
+somebody else's code can reach. Granting any `trusted_*` flag. Lowering
+`require_approval` — the setting that decides whether a fork's pipeline waits for
+a person before it runs with this repository's secrets, which is the gate
+[`approve_pipeline`](#approve-pipeline) exists to hold. Setting `visibility` to
+`public`, which makes the logs those builds write readable by anyone. Naming
+either of the last two costs one extra read, because "lowering" is a comparison
+with the current setting; tightening them, withdrawing trust and every other
+field still apply on the first call.
 
 Parameters: `repo_id`, `config_file`, `timeout`, `visibility`, `allow_pr`,
 `allow_deploy`, `require_approval`, `cancel_previous_pipeline_events`,
-`trusted_network`, `trusted_volumes`, `trusted_security`.
+`trusted_network`, `trusted_volumes`, `trusted_security`, `confirm_token`.
 
 ### `repair_repository`
 
@@ -280,10 +289,17 @@ Parameters: `scope`, `repo_id`, `org_id`, `name`, `value`, `events`, `images`,
 
 ### `update_secret`
 
-👤 (when passing `value`) — Changes a secret; passing `value` rotates it,
-which is two-step because the old value was never readable through the API and
-is gone once it is overwritten. `events` and `images` are replaced wholesale
-rather than merged, so pass the complete list.
+👤 (when passing `value`, or widening who may read the secret) — Changes a
+secret. Passing `value` rotates it, which is two-step because the old value was
+never readable through the API and is gone once it is overwritten.
+
+So is widening the exposure, and that is not cosmetics either: adding a
+`pull_request` event hands the secret to builds of code that arrived in a pull
+request, including from a fork, and emptying `images` removes the restriction on
+which container images may read it. Narrowing either, and editing the note, apply
+on the first call. `events` and `images` are replaced wholesale rather than
+merged, so pass the complete list — and naming either costs one extra read,
+because "widening" is a comparison with the secret's current setting.
 
 Parameters: `scope`, `repo_id`, `org_id`, `name`, `value`, `events`, `images`,
 `note`, `confirm_token`.
@@ -320,10 +336,14 @@ Parameters: `scope`, `repo_id`, `org_id`, `address`, `username`, `password`.
 
 ### `update_registry`
 
-Changes username or password. The address cannot be changed — delete and
-re-create instead.
+👤 (when passing `password`) — Changes username or password. The address cannot
+be changed — delete and re-create instead. Replacing the password is two-step for
+the same reason [`delete_registry`](#delete-registry) is: Woodpecker strips it
+from every response, so the value being overwritten is not readable anywhere and
+nothing brings it back. Correcting a username alone applies on the first call.
 
-Parameters: `scope`, `repo_id`, `org_id`, `address`, `username`, `password`.
+Parameters: `scope`, `repo_id`, `org_id`, `address`, `username`, `password`,
+`confirm_token`.
 
 ### `delete_registry`
 

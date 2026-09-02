@@ -69,7 +69,7 @@ in all of it.
 
 ## Turning the approval dialog off
 
-The twenty-two irreversible operations ask a person through MCP elicitation before
+The twenty-three irreversible operations ask a person through MCP elicitation before
 they act. `ELICITATION=false` takes them to the two-call token instead. It does not
 remove the guard; there is no setting in which a guarded call goes unannounced.
 

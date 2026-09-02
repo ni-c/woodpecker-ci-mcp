@@ -1,7 +1,7 @@
 # Asking a person
 
-Twenty-two of the 71 tools do something a CI server does not undo, or hand somebody
-more reach than they had. All twenty-two **ask a person first**.
+Twenty-three of the 71 tools do something a CI server does not undo, or hand
+somebody more reach than they had. All twenty-three **ask a person first**.
 
 Not a `confirm: true` argument the model can set. Not a token the model reads out
 of its own previous result. A dialog, raised through [MCP
@@ -26,8 +26,9 @@ answer comes back, nothing happens.
 | `update_forge` · `pause_queue` · `approve_pipeline` | always |
 | `update_user` | only when it grants `admin` |
 | `create_user` | only when it creates an `admin` |
-| `update_repository` | only when it grants a `trusted_*` flag |
-| `update_secret` | only when a new `value` comes with it |
+| `update_repository` | only when it grants a `trusted_*` flag, lowers `require_approval`, or sets `visibility` to `public` |
+| `update_secret` | only when a new `value` comes with it, when a `pull_request` event is added, or when `images` is emptied |
+| `update_registry` | only when a new `password` comes with it |
 | `set_log_level` | only when it **silences** the server (`fatal`, `panic`, `disabled`) |
 | everything else | never |
 
@@ -75,8 +76,37 @@ source that opened it.
 ```
 
 The approval is bound to its target, so one obtained for a call cannot be
-replayed against another. For a *set* of targets the binding is a fingerprint of
-the exact list: an approval for `["a"]` does not execute `["a", "b"]`.
+replayed against another. The binding is a fingerprint of the targets **in the
+order the tool names them**, plus one of the request body where the call decides
+more than which object it touches. Both halves are load-bearing here, because
+most of these targets are small integers that look alike: an approval for
+`approve_pipeline(repo_id: 5, number: 12)` is not one for `(repo_id: 12,
+number: 5)`, and one shown as "grant `trusted_network`" does not execute a second
+call that also carries `visibility: "public"`.
+
+## What it does not prove: freshness
+
+An approval proves *what* was agreed to. It does not prove *how often*. Until it
+expires, the same one can be redeemed again — a retried call, a gateway that
+replays a leg, a model that loops. For everything on the list above that is
+harmless: a second `delete_secret` finds nothing to delete, a second
+`set_log_level` sets the level it is already at, and the world is the same either
+way. That is what the `idempotentHint` on each of those tools says.
+
+Three tools are honestly not idempotent, and they are the three that start a
+build: `trigger_pipeline`, `restart_pipeline` and `run_cron`. Each call is a new
+pipeline, by design — re-running a flaky job is the ordinary thing to do in CI —
+and Woodpecker offers no idempotency key, no request id and no way to say "only
+if you have not already". None of the three is behind a confirmation for that
+reason: a gate that cannot make the operation at-most-once would only look like
+one. They carry `idempotentHint: false`, their descriptions say a repeat starts
+another run, and the cost of a double run is a duplicate build rather than
+something that cannot be undone.
+
+`move_repository` is the exception worth naming: it is guarded, and Woodpecker
+performs the move and *then* answers HTTP 500, so a caller that treats the error
+as "it did not happen" and retries moves the repository twice. The tool's own
+description says so in full.
 
 ## Clients that cannot show a dialog
 

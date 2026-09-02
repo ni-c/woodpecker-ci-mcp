@@ -85,6 +85,93 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Confirmation tokens are compared with a **constant-time** comparison, in the
   library's implementation rather than in the copy kept here.
 
+- **`budgetedJson` could stop the server for good.** It replaced the longest
+  string in a result with 200 characters plus a note saying how many were
+  omitted — 230 characters, which is _longer_ than the 200-character threshold
+  that made it a candidate. So the same slot was picked again, rewritten to the
+  identical text, and the document measured to the identical size, for ever. Any
+  result that shortening alone could not bring under budget reached that
+  fixpoint: `get_queue_info` on an instance with about four hundred waiting
+  tasks needed no attacker at all, and a `.woodpecker.yml` with five hundred long
+  step names is a repository's own choice. Node is single-threaded, so the server
+  then answered nothing — not the tool that triggered it and not any other — until
+  the process was killed.
+
+  Shortened strings are now excluded from the next round by a sentinel, as in
+  `wikijs-mcp`, so the loop runs out of candidates and falls through to the pass
+  that drops list entries; both passes carry a hard round limit, because a
+  fixpoint must never be a hang. Shortening also happens in doubling batches
+  instead of re-rendering the whole document once per string.
+
+- **A ReDoS in the build-log cleaner.** The rule that keeps only the last state
+  of a line a progress bar rewrote was `[^\n]*\r`: the star runs to the end of
+  the line, finds no carriage return, and backtracks a character at a time, from
+  every start position. Quadratic in the line's length — 200 000 characters took
+  10.5 seconds and a megabyte over 48, with the event loop blocked throughout.
+  A single four-megabyte comment line is legal YAML, and `get_pipeline_config`
+  strips whatever the repository put in `.woodpecker.yml`, with no limit on how
+  many files it reads. It is now one backwards scan per line.
+
+  `get_pipeline_config` also bounds what it decodes — at most 20 files, at most
+  200 000 bytes each — and `get_step_logs` applies its byte budget to each chunk
+  _before_ stripping it rather than to the joined text afterwards.
+
+- **`get_secret` and `list_secrets` did not remove a secret's value.** A comment
+  in `normalize.ts` said they did, and nothing there or in `tools/secrets.ts`
+  removed anything: the confidentiality of the field rested entirely on
+  Woodpecker's `model.Secret.Copy()` stripping it upstream. On a healthy instance
+  that is true, which is why nobody noticed. It is now this server's own control
+  as well, and the comment describes what the code does.
+
+- `WOODPECKER_READ_ONLY` is read as `1`, `yes` or `true` in any case, not only as
+  the exact string `true`. `WOODPECKER_READ_ONLY=1` — what a Compose file or a
+  systemd unit is most likely to say — used to leave every write tool registered
+  while the operator believed the server could not write. `WOODPECKER_INSECURE_TLS`
+  stays strict on purpose: a protection should fail on, a permission should not.
+
+### Security
+
+- **A confirmation authorised the operation nobody was asked about.** The
+  resource key came from `setResourceKey`, which sorts its targets — correct for
+  a set, wrong for every tool here, whose targets are ordered tuples of small
+  integers that look alike. `["5","12"]` and `["12","5"]` hashed to the same key,
+  and the second call's arguments were never compared with the first's. A person
+  who read "approve blocked pipeline 12 of repository 5 … runs that fork's code
+  with this repository's secrets" and agreed was, with the same token, able to
+  approve pipeline 5 of repository 12: a different fork, and the secrets of a
+  repository that was never mentioned. `delete_pipeline`, `delete_step_logs`,
+  `delete_cron`, `delete_agent`, `delete_user` and `delete_secret` collided the
+  same way.
+
+  Targets now carry their role (`repo:5`, `pipeline:12`) and the key preserves
+  their order. Where a call decides more than which object it touches, a
+  fingerprint of the request body is part of the binding too — so a token shown
+  as "grant `trusted_network`" no longer executes a second call that also carries
+  `visibility: "public"`. `mcp-approval` is unchanged; a server whose targets are
+  ordered says so at the call site.
+
+- **Two ungated tools could switch the fork gate off.** `approve_pipeline` is the
+  most carefully reasoned guard in this server, and `update_repository` let
+  `require_approval: "none"` and `visibility: "public"` through on the first call
+  (only the `trusted_*` flags were guarded), while `update_secret` let `events`
+  and `images` through (only `value` was guarded). Together: a fork's pull request
+  runs unapproved, reads a secret it was newly made visible to, prints it, and the
+  log is world-readable — without a single prompt.
+
+  Both now gate on _direction_, the way `set_log_level` and the `trusted_*` flags
+  already did. Lowering `require_approval`, making a repository public, adding a
+  `pull_request` event to a secret or emptying its `images` list asks first;
+  tightening any of them, and every other field, still applies on the first call.
+  Naming one of those fields costs one extra read, because "lowering" is a
+  comparison with the current setting.
+
+- **`update_registry` rotated an unrecoverable credential without asking.** Its
+  own annotation states the rule — "the old password is not readable through the
+  API and cannot be recovered" — `update_secret` is guarded by that exact
+  sentence, and `delete_registry` beside it is two-step for the same damage.
+  Passing `password` is now two-step; correcting a `username` alone still applies
+  on the first call. That makes twenty-three guarded operations, not twenty-two.
+
 ## [0.1.0] - 2026-08-29
 
 First public release.

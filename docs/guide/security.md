@@ -40,12 +40,15 @@ back to you, and neither can the web UI.
 
 ## Irreversible operations ask a person
 
-Twenty-two tools ask: every `delete_*`, plus `move_repository`, `chown_repository`,
+Twenty-three tools ask: every `delete_*`, plus `move_repository`, `chown_repository`,
 the whole-instance `repair_repository`, `update_forge`, `pause_queue` and
 `approve_pipeline` — and five more only in the direction that escalates:
 `update_user` when it grants `admin`, `create_user` when it creates one,
-`update_repository` when it grants one of the `trusted_*` flags, `update_secret`
-when it overwrites a value, and `set_log_level` when it silences the server.
+`update_repository` when it grants one of the `trusted_*` flags or lowers a
+confidentiality boundary (`require_approval` down, `visibility` to `public`),
+`update_secret` when it overwrites a value or widens who may read the secret
+(a `pull_request` event added, `images` emptied), `update_registry` when it
+replaces a password, and `set_log_level` when it silences the server.
 
 Only that direction. Correcting an email, withdrawing trust, renaming a secret or
 turning the logs *up* applies on the first call: a confirmation on the harmless

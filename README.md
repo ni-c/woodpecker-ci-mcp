@@ -295,12 +295,14 @@ parameters.
 
 ## Safety
 
-- **Twenty-two operations ask a person.** Every `delete_*`, plus
+- **Twenty-three operations ask a person.** Every `delete_*`, plus
   `move_repository`, `chown_repository`, the whole-instance `repair_repository`,
-  `update_forge`, `pause_queue` and `approve_pipeline` — and five more only in the
+  `update_forge`, `pause_queue` and `approve_pipeline` — and six more only in the
   direction that escalates: `update_user` granting `admin`, `create_user` creating
-  one, `update_repository` granting a `trusted_*` flag, `update_secret`
-  overwriting a value, and `set_log_level` silencing the server.
+  one, `update_repository` granting a `trusted_*` flag or lowering the fork gate
+  (`require_approval` down, `visibility` to `public`), `update_secret` overwriting
+  a value or widening who may read it, `update_registry` replacing a password, and
+  `set_log_level` silencing the server.
 
   Where the client supports MCP elicitation that is a real dialog the model cannot
   answer on its behalf. Where it does not, the first call returns a short-lived
