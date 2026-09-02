@@ -140,6 +140,35 @@ export function budgetedList(
 /** Length beyond which a single string is worth shortening. */
 const MAX_STRING_LENGTH = 200;
 
+/**
+ * Marks a string this function already shortened.
+ *
+ * Load-bearing, not cosmetic. The replacement is the first 200 characters plus
+ * this note, which is itself about thirty characters — so a shortened string is
+ * *still* longer than the threshold, and a shortener that only compares lengths
+ * picks the very same slot up again, rewrites it to the identical 230
+ * characters, and measures the identical document. That is a fixpoint, not
+ * progress: on a result that shortening alone cannot bring under budget (four
+ * hundred queued tasks, or a `.woodpecker.yml` with five hundred long step
+ * names) the loop never ends, and because Node is single-threaded the whole
+ * server stops answering — not just this tool. Excluding already-shortened
+ * strings is what lets the loop run out of candidates and fall through to the
+ * array pass, which is the one that can actually make the document smaller.
+ */
+const OMISSION = /… \(\d+ more characters omitted\)$/;
+
+/**
+ * Ceiling on how many rounds either shrinking pass may take.
+ *
+ * Both loops are supposed to terminate on their own — the string pass runs out
+ * of candidates, the array pass runs out of entries — and the string pass
+ * already did once, which is exactly why there is a ceiling now. A budgeting
+ * helper that spins is the worst failure mode this file has: nothing recovers
+ * from it but killing the process. Reaching the ceiling is not an error, it
+ * just moves on to the next pass and finally to the honest give-up below.
+ */
+const MAX_SHRINK_ROUNDS = 1000;
+
 type StringSlot = {
   container: Record<string, unknown> | unknown[];
   key: string | number;
@@ -147,27 +176,29 @@ type StringSlot = {
 };
 
 /**
- * The longest shortenable string anywhere in the tree, with the slot it sits in.
+ * Every shortenable string in the tree, longest first.
  *
- * Anywhere, not just at the top level: the oversized text in a Woodpecker object
- * is never a top-level property. A commit message hangs off `pipeline`, a step's
- * `error` off `workflows[].steps[]`, a YAML file off `configs[]`. Only looking at
- * the root meant nothing was ever found to shorten, and the whole result was
- * discarded instead — see the regression tests in `test/result.test.ts`.
+ * Anywhere in the tree, not just at the top level: the oversized text in a
+ * Woodpecker object is never a top-level property. A commit message hangs off
+ * `pipeline`, a step's `error` off `workflows[].steps[]`, a YAML file off
+ * `configs[]`. Only looking at the root meant nothing was ever found to shorten,
+ * and the whole result was discarded instead — see the regression tests in
+ * `test/result.test.ts`.
+ *
+ * All of them in one walk, not the longest one per walk: a queue with four
+ * hundred waiting tasks is an ordinary answer here, and re-walking the tree once
+ * per shortened string is what made this quadratic on top of everything else.
  */
-function longestString(root: unknown): StringSlot | undefined {
-  let best: StringSlot | undefined;
+function shortenableStrings(root: unknown): StringSlot[] {
+  const found: StringSlot[] = [];
   const consider = (
     container: Record<string, unknown> | unknown[],
     key: string | number,
     value: unknown
   ): void => {
     if (typeof value === 'string') {
-      if (
-        value.length > MAX_STRING_LENGTH &&
-        (best === undefined || value.length > best.value.length)
-      ) {
-        best = { container, key, value };
+      if (value.length > MAX_STRING_LENGTH && !OMISSION.test(value)) {
+        found.push({ container, key, value });
       }
       return;
     }
@@ -184,7 +215,7 @@ function longestString(root: unknown): StringSlot | undefined {
     }
   };
   visit(root);
-  return best;
+  return found.sort((a, b) => b.value.length - a.value.length);
 }
 
 type ArraySlot = { array: unknown[]; path: string };
@@ -231,20 +262,28 @@ export function budgetedJson(data: unknown): string {
 
   const copy = structuredClone(redacted);
 
-  for (;;) {
-    const slot = longestString(copy);
-    if (slot === undefined) break;
-    const omitted = slot.value.length - MAX_STRING_LENGTH;
-    // The cast is safe either way round: `key` is a number exactly when
-    // `container` is the array it was read from.
-    (slot.container as Record<string | number, unknown>)[slot.key] =
-      `${slot.value.slice(0, MAX_STRING_LENGTH)}… (${omitted} more characters omitted)`;
+  // Shorten in doubling batches — 1, then 2, then 4 — rather than re-rendering
+  // after every single string. Doubling keeps the common case (one oversized
+  // commit message) minimal while bounding the pathological one: five hundred
+  // long step names used to mean five hundred renderings of a 180 kB document.
+  let batch = 1;
+  for (let round = 0; round < MAX_SHRINK_ROUNDS; round++) {
+    const slots = shortenableStrings(copy);
+    if (slots.length === 0) break;
+    for (const slot of slots.slice(0, batch)) {
+      const omitted = slot.value.length - MAX_STRING_LENGTH;
+      // The cast is safe either way round: `key` is a number exactly when
+      // `container` is the array it was read from.
+      (slot.container as Record<string | number, unknown>)[slot.key] =
+        `${slot.value.slice(0, MAX_STRING_LENGTH)}… (${omitted} more characters omitted)`;
+    }
     rendered = JSON.stringify(copy, null, 2);
     if (byteLength(rendered) <= MAX_RESULT_BYTES) return rendered;
+    batch *= 2;
   }
 
   const dropped: Record<string, { shown: number; total: number }> = {};
-  for (;;) {
+  for (let round = 0; round < MAX_SHRINK_ROUNDS; round++) {
     const slot = longestArray(copy);
     if (slot === undefined) break;
     const total = dropped[slot.path]?.total ?? slot.array.length;

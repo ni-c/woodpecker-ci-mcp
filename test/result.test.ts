@@ -119,6 +119,73 @@ describe('budgetedJson', () => {
     expect(parsed.truncated.note).toContain('Narrow the request');
   });
 
+  // The three below are the regression for a hang, not for a wrong answer, and
+  // they all carry a timeout because the failure mode is that they never
+  // return. The shortener replaced its longest string with 200 characters plus
+  // a ~30-character note and then measured the document again — but the
+  // replacement is *longer* than the 200-character threshold, so the very same
+  // slot was picked, rewritten to the identical text, and measured to the
+  // identical size, for ever. Node is single-threaded, so the server answered
+  // nothing at all afterwards, not even a different tool, and only killing the
+  // process ended it.
+  //
+  // The existing cases above could not catch it: one long string fits after
+  // round one, fifty shortened strings are 11 kB and fit, and four thousand
+  // *short* strings never enter the loop. The shape that hangs is many long
+  // strings whose shortened sum is still over budget — 400 waiting tasks from
+  // get_queue_info, or a .woodpecker.yml with 500 long step names — and it was
+  // the only shape not covered.
+  it(
+    'returns on many long strings whose shortened sum is still over budget',
+    { timeout: 10_000 },
+    () => {
+      const parsed = JSON.parse(
+        budgetedJson({
+          tasks: Array.from({ length: 600 }, (_, i) => ({
+            id: i,
+            data: 'x'.repeat(300),
+          })),
+        })
+      );
+      expect(parsed.tasks.length).toBeLessThan(600);
+      expect(parsed.truncated.lists['tasks'].total).toBe(600);
+    }
+  );
+
+  it(
+    'returns when the oversized strings are not in an array either',
+    { timeout: 10_000 },
+    () => {
+      // No array to drop entries from, so the string pass has to run out of
+      // candidates and fall through to the honest give-up rather than spinning.
+      const wide: Record<string, string> = {};
+      for (let i = 0; i < 600; i++) wide[`step_${i}`] = 'x'.repeat(300);
+      expect(JSON.parse(budgetedJson(wide)).error).toContain(
+        'result size budget'
+      );
+    }
+  );
+
+  it(
+    'returns on text that is already at the shortening marker',
+    { timeout: 10_000 },
+    () => {
+      // summarizePipeline cuts a commit message to 200 characters plus an
+      // ellipsis — 201, one over the threshold — so get_pipeline_feed reached the
+      // loop with strings that were already as short as shortening could make
+      // them. Nothing here has to shrink; it has to terminate.
+      const parsed = JSON.parse(
+        budgetedJson({
+          pipelines: Array.from({ length: 700 }, (_, i) => ({
+            number: i,
+            message: `${'x'.repeat(200)}…`,
+          })),
+        })
+      );
+      expect(parsed.pipelines.length).toBeLessThan(700);
+    }
+  );
+
   it('gives up honestly when there is nothing left to shorten', () => {
     const wide: Record<string, number> = {};
     for (let i = 0; i < 20_000; i++) wide[`key_number_${i}`] = i;

@@ -160,4 +160,62 @@ describe('stripControlCharacters', () => {
   it('drops raw binary but keeps tabs and newlines', () => {
     expect(stripControlCharacters('a\u0000\u0001b\tc\nd')).toBe('ab\tc\nd');
   });
+  // The regression for a quadratic blow-up, so the assertion that matters is
+  // the timeout rather than the value. The carriage-return rule used to read
+  // `[^\n]*\r`: the star runs to the end of the line, finds no `\r`, and
+  // backtracks one character at a time — from every start position in the
+  // line. Measured against the built server before the fix: 10 000 characters
+  // 29 ms, 200 000 characters 10.5 seconds, one megabyte over 48 seconds, with
+  // the event loop blocked throughout. A single four-megabyte comment line is
+  // legal YAML, and get_pipeline_config decodes and strips whatever the
+  // repository put in `.woodpecker.yml`.
+  //
+  // A megabyte with no newline and no carriage return is exactly the worst
+  // case, and the linear form does it in single-digit milliseconds.
+  it(
+    'is linear in the length of a line, not quadratic',
+    { timeout: 5000 },
+    () => {
+      const line = 'x'.repeat(1_000_000);
+      expect(stripControlCharacters(line)).toBe(line);
+    }
+  );
+
+  it('still keeps only the last state of a long rewritten line', () => {
+    // The greedy regex ate up to the last `\r` in the line; the replacement
+    // keeps what follows the last `\r`. Same thing, and this says so on a line
+    // long enough that the old form would have shown the cost.
+    const text = `${'a'.repeat(5000)}\r${'b'.repeat(5000)}\rdone\n`;
+    expect(stripControlCharacters(text)).toBe('done\n');
+  });
+
+  it('rewrites each line independently, not the whole document', () => {
+    expect(stripControlCharacters('  1%\rdone\nnext\r  9%\rfine')).toBe(
+      'done\nfine'
+    );
+  });
+});
+
+describe('the byte budget is applied before the stripping, not after', () => {
+  // MAX_LOG_BYTES protects the model's context and used to run only on the
+  // joined text, so a step that flushed one four-megabyte chunk had all four
+  // megabytes decoded and walked first. The cap on the chunk bounds the work.
+  it('caps a single oversized chunk and reports the truncation', () => {
+    const log = decodeLog([entry(0, 'x'.repeat(MAX_LOG_BYTES * 4))], {
+      limit: 10,
+      from: 'head',
+    });
+    expect(Buffer.byteLength(log.text, 'utf8')).toBeLessThanOrEqual(
+      MAX_LOG_BYTES
+    );
+    expect(log.truncatedBytes).toBe(true);
+  });
+
+  it('takes the tail of an oversized chunk when reading from the tail', () => {
+    const log = decodeLog([entry(0, `${'a'.repeat(MAX_LOG_BYTES * 2)}END`)], {
+      limit: 10,
+      from: 'tail',
+    });
+    expect(log.text.endsWith('END')).toBe(true);
+  });
 });

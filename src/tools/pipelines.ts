@@ -30,6 +30,20 @@ import { guarded } from '../guard.js';
 import { stripControlCharacters } from '../logs.js';
 import type { ToolContext } from './context.js';
 
+/**
+ * Bounds on what one `get_pipeline_config` answer is allowed to cost.
+ *
+ * Both numbers are decided by the repository rather than by an input schema:
+ * `config_file` may name a directory, so `configs` is however many YAML files
+ * someone put in `.woodpecker/`, and each of those files is as long as they made
+ * it. `budgetedUntrustedResult` bounds what reaches the model, but it runs at the
+ * end — after every byte has been base64-decoded and walked six times by
+ * `stripControlCharacters`. These bound the work itself, which is the part a
+ * single-threaded server cannot get back.
+ */
+const MAX_CONFIG_FILES = 20;
+const MAX_CONFIG_BYTES = 200_000;
+
 export function registerPipelineTools(
   server: McpServer,
   { api, confirmations, approval, readOnly }: ToolContext
@@ -139,18 +153,48 @@ export function registerPipelineTools(
         );
         // `data` is the file content, base64 in the Go model's JSON. It is a
         // file from the repository, so it gets the same control-character
-        // treatment as build output.
-        const files = configs.map((config) => ({
-          name: config.name,
-          hash: config.hash,
-          content:
-            typeof config.data === 'string'
-              ? stripControlCharacters(
-                  Buffer.from(config.data, 'base64').toString('utf8')
-                )
-              : config.data,
-        }));
-        return budgetedUntrustedResult({ configs: files });
+        // treatment as build output — and the same bounds, applied before the
+        // decoding rather than after it.
+        const shown = configs.slice(0, MAX_CONFIG_FILES);
+        const files = shown.map((config) => {
+          if (typeof config.data !== 'string') {
+            return {
+              name: config.name,
+              hash: config.hash,
+              content: config.data,
+            };
+          }
+          const raw = Buffer.from(config.data, 'base64');
+          const cut = raw.byteLength > MAX_CONFIG_BYTES;
+          const content = stripControlCharacters(
+            (cut ? raw.subarray(0, MAX_CONFIG_BYTES) : raw).toString('utf8')
+          );
+          // The note goes beside the content, not appended to it: an oversized
+          // file is exactly the one that budgetedJson shortens, and a marker at
+          // the end of the string is the first thing that shortening removes.
+          return cut
+            ? {
+                name: config.name,
+                hash: config.hash,
+                truncated: `Only the first ${MAX_CONFIG_BYTES} bytes of this ${raw.byteLength}-byte file were read.`,
+                content,
+              }
+            : { name: config.name, hash: config.hash, content };
+        });
+        return budgetedUntrustedResult({
+          configs: files,
+          ...(configs.length > shown.length
+            ? {
+                truncated: {
+                  shown: shown.length,
+                  total: configs.length,
+                  note:
+                    `This pipeline was built from ${configs.length} configuration ` +
+                    `files; only the first ${shown.length} were read.`,
+                },
+              }
+            : {}),
+        });
       })
   );
 
@@ -206,7 +250,10 @@ export function registerPipelineTools(
       description:
         'Starts a pipeline manually on a branch. It runs the config as it is in ' +
         'that branch right now, with event "manual". A branch that does not exist ' +
-        'is rejected with a bare 400, so check list_repository_branches first.',
+        'is rejected with a bare 400, so check list_repository_branches first. ' +
+        'Not idempotent and there is no way to make it so — Woodpecker has no ' +
+        'idempotency key — so a retry after a timeout starts a second pipeline. ' +
+        'Read list_pipelines before calling again.',
       inputSchema: z.object({
         repo_id: repoIdParam,
         branch: branchParam.describe('Branch to run. Required.'),
@@ -252,7 +299,9 @@ export function registerPipelineTools(
       title: 'Restart a pipeline',
       description:
         'Runs an existing pipeline again, at the same commit and with the same ' +
-        'config it used then. The re-run gets a new number; the original is kept.',
+        'config it used then. The re-run gets a new number; the original is kept. ' +
+        'Every call is another run — a retry after a timeout starts a second one, ' +
+        'and Woodpecker offers no idempotency key to prevent that.',
       inputSchema: z.object({
         repo_id: repoIdParam,
         number: pipelineNumberParam,
@@ -360,7 +409,7 @@ export function registerPipelineTools(
           confirmations,
           {
             tool: 'approve_pipeline',
-            targets: [String(repo_id), String(number)],
+            targets: [`repo:${repo_id}`, `pipeline:${number}`],
             what: `approve blocked pipeline ${number} of repository ${repo_id}`,
             consequence:
               'A blocked pipeline is usually one from a fork. Approving it runs ' +
@@ -445,7 +494,7 @@ export function registerPipelineTools(
           confirmations,
           {
             tool: 'delete_pipeline',
-            targets: [String(repo_id), String(number)],
+            targets: [`repo:${repo_id}`, `pipeline:${number}`],
             what: `delete pipeline ${number} of repository ${repo_id}`,
             consequence:
               'Its build logs and step results go with it and cannot be restored.',
