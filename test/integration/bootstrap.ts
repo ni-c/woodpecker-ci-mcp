@@ -237,7 +237,7 @@ async function forge(
   const response = await fetch(`${GITEA}${path}`, {
     method,
     headers: { authorization: auth, 'content-type': 'application/json' },
-    body: body === undefined ? undefined : JSON.stringify(body),
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
     signal: AbortSignal.timeout(60_000),
   });
   if (!response.ok) {

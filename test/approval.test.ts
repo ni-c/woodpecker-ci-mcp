@@ -22,8 +22,8 @@ describe('approval through the client', () => {
 
   function routes() {
     return stubFetch({
-      'GET /repos/42': repoFixture(),
-      'PATCH /repos/42': repoFixture({ trusted: { network: true } }),
+      'GET /repos/42': { json: repoFixture() },
+      'PATCH /repos/42': { json: repoFixture({ trusted: { network: true } }) },
     });
   }
 
