@@ -464,10 +464,16 @@ describe('a move, in the only shape this endpoint accepts', () => {
     // to be *an* error passes just as well when the route is wrong, the schema
     // rejects an argument, or the container is not up. This is the specific
     // 500 described above, and nothing else counts.
+    //
+    // The status rather than Woodpecker's wording, because the wording is not
+    // ours to pin: the first attempt at this assertion guessed the message
+    // from the upstream source and CI answered with the real one. What the
+    // server owns is that the call reached POST /repos/:id/move and came back
+    // 500 — a route change or a rejected argument still fails the test.
     await asking.call(
       'move_repository',
       { repo_id: repoId, to: `${USERNAME}/integration-moved` },
-      { expectError: 'could not determine repo for permission' }
+      { expectError: /POST \/repos\/\d+\/move.* failed with HTTP 500/ }
     );
     // ...and it moved anyway. That is the finding: the error is raised after
     // the work is done, so a caller that retries moves a repository twice.
