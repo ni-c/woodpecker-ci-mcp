@@ -16,6 +16,11 @@
 # afterwards. Bound to 127.0.0.1 only.
 services:
   gitea:
+    # Held at 1.24 on purpose, and not because it is merely untested: from 1.27
+    # the sign-in form no longer carries a hidden `_csrf` field, and there is no
+    # `_csrf` cookie to read it from either. `bootstrap()` scrapes that token to
+    # sign in and again to grant OAuth consent, so a newer forge makes the
+    # sandbox fail to come up at all rather than fail a test.
     image: ${GITEA_IMAGE:-gitea/gitea:1.24}
     environment:
       # `gitea:3000` because this is the address Woodpecker resolves from
@@ -52,7 +57,7 @@ services:
   # halves where the server can read them. One shot: it exits, and the server
   # waits for that.
   oauth:
-    image: ${CURL_IMAGE:-curlimages/curl:8.11.1}
+    image: ${CURL_IMAGE:-curlimages/curl:8.22.0}
     depends_on:
       - gitea
     # The image runs as an unprivileged user and a fresh named volume is
@@ -79,7 +84,7 @@ services:
         test -s /oauth/client && test -s /oauth/secret
 
   woodpecker:
-    image: ${WOODPECKER_IMAGE:-woodpeckerci/woodpecker-server:v3.11}
+    image: ${WOODPECKER_IMAGE:-woodpeckerci/woodpecker-server:v3.18}
     depends_on:
       oauth:
         condition: service_completed_successfully
@@ -122,7 +127,7 @@ services:
       - '127.0.0.1:8010:8000'
 
   agent:
-    image: ${WOODPECKER_AGENT_IMAGE:-woodpeckerci/woodpecker-agent:v3.11}
+    image: ${WOODPECKER_AGENT_IMAGE:-woodpeckerci/woodpecker-agent:v3.18}
     depends_on:
       - woodpecker
     environment:

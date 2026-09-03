@@ -103,10 +103,11 @@ one. They carry `idempotentHint: false`, their descriptions say a repeat starts
 another run, and the cost of a double run is a duplicate build rather than
 something that cannot be undone.
 
-`move_repository` is the exception worth naming: it is guarded, and Woodpecker
-performs the move and *then* answers HTTP 500, so a caller that treats the error
-as "it did not happen" and retries moves the repository twice. The tool's own
-description says so in full.
+`move_repository` is the exception worth naming: it is guarded, and on 3.11
+Woodpecker performs the move and *then* answers HTTP 500, so a caller that
+treats the error as "it did not happen" and retries moves the repository twice.
+On 3.18 the call answers cleanly. The tool's own description says so in full,
+because a server points at whichever instance it was given.
 
 ## Clients that cannot show a dialog
 

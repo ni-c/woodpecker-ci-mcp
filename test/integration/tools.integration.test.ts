@@ -442,14 +442,17 @@ describe('an organization, which only the forge can create', () => {
 
 describe('a move, in the only shape this endpoint accepts', () => {
   it('repoints the repository at another location in the forge', async () => {
-    // Three things about `POST /repos/{id}/move`, all found here and none of
-    // them documented upstream:
+    // Three things about `POST /repos/{id}/move`, none of them documented
+    // upstream:
     //
-    //  - **It moves the repository and then answers HTTP 500.** Reproduced on
-    //    3.11 with a freshly activated public repository and an instance
-    //    administrator: the handler does the move, then writes a permission
-    //    record that has no repository attached, and fails on that with
-    //    "could not determine repo for permission". The move has happened.
+    //  - **On 3.11 it moved the repository and then answered HTTP 500.**
+    //    Reproduced there with a freshly activated public repository and an
+    //    instance administrator: the handler did the move, then wrote a
+    //    permission record with no repository attached and failed on that with
+    //    "could not determine repo for permission" — after the move had
+    //    happened. On 3.18, the version this suite runs against, the call
+    //    answers cleanly. Which release fixed it is not something this suite
+    //    can say; that it is fixed here is.
     //  - The target has to exist in the forge *now*, so a rename cannot be
     //    followed with this call — after a rename the old location is gone and
     //    the new one is a different repository.
@@ -458,26 +461,14 @@ describe('a move, in the only shape this endpoint accepts', () => {
     //    "UNIQUE constraint failed: redirections.repo_full_name", because the
     //    redirection it wants to write is already there.
     //
-    // So the target here is a second real repository, and the call is expected
-    // to report an error.
+    // So the target here is a second real repository.
     await createRepository('integration-moved', PIPELINE);
-    // Named rather than left as a bare `true`: an error that is only asserted
-    // to be *an* error passes just as well when the route is wrong, the schema
-    // rejects an argument, or the container is not up. This is the specific
-    // 500 described above, and nothing else counts.
-    //
-    // The status rather than Woodpecker's wording, because the wording is not
-    // ours to pin: the first attempt at this assertion guessed the message
-    // from the upstream source and CI answered with the real one. What the
-    // server owns is that the call reached POST /repos/:id/move and came back
-    // 500 — a route change or a rejected argument still fails the test.
-    await asking.call(
-      'move_repository',
-      { repo_id: repoId, to: `${USERNAME}/integration-moved` },
-      { expectError: /POST \/repos\/\d+\/move.* failed with HTTP 500/ }
-    );
-    // ...and it moved anyway. That is the finding: the error is raised after
-    // the work is done, so a caller that retries moves a repository twice.
+    await asking.call('move_repository', {
+      repo_id: repoId,
+      to: `${USERNAME}/integration-moved`,
+    });
+    // The call reporting success is half of it; that Woodpecker really points
+    // at the new location is the half a caller acts on.
     expect(await asking.call('get_repository', { repo_id: repoId })).toContain(
       'integration-moved'
     );

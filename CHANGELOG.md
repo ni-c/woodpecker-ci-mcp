@@ -46,6 +46,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   not happen, which is what `isError` says. The text is unchanged and still
   carries the token.
 
+- `move_repository` no longer describes the HTTP 500 it answered with as the
+  behaviour of the endpoint. On 3.11 it performed the move and then failed on a
+  permission record with no repository attached; on 3.18 the call answers
+  cleanly. The warning stays, scoped to the older instances it is true of, since
+  a server points at whichever instance it was given.
+
 ### Added
 
 - The tools that need a confirmation now **ask the user**, on clients that
