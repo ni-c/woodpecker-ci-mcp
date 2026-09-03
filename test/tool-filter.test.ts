@@ -22,6 +22,7 @@ import type { Config } from '../src/config.js';
 import { createServer } from '../src/server.js';
 import { ToolFilterError } from 'mcp-tool-allowlist';
 import { stubFetch, testConfig } from './harness.js';
+import { expectPortableToolSchemas } from 'mcp-integration-harness';
 
 /** Every registered tool, as the client sees it — annotations included. */
 async function listTools() {
@@ -131,6 +132,16 @@ describe('the catalogue', () => {
       // depending on who asked.
       expect(tool.outputSchema?.type, tool.name).toBe('object');
     }
+  });
+
+  it('advertises schemas every client can read', async () => {
+    // Legal JSON Schema is not enough. `{}` in a schema position — what zod
+    // writes for `looseObject`, `catchall` and `z.unknown()` — and `type` as an
+    // array are both refused, or silently dropped, by some clients. Neither is
+    // a contract: each has an equivalent spelling that says the same thing, so
+    // there is nothing here to excuse.
+    const tools = await toolDescriptors();
+    expectPortableToolSchemas(tools);
   });
 
   it('says in the schema which results carry pushed content', async () => {
