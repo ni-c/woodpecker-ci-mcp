@@ -1,12 +1,15 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   listOf,
   objectOf,
   summarizePipeline,
   summarizeUser,
 } from '../normalize.js';
+import { z } from 'zod';
+import { marked, plain } from '../output-schema.js';
+
 import { budgetedUntrustedResult, jsonResult, run } from '../result.js';
+import { READ_ONLY } from './annotations.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -30,8 +33,9 @@ export function registerAccountTools(
         'Returns the account WOODPECKER_TOKEN belongs to, including whether it is ' +
         'an instance administrator. This is the first thing to call when a tool ' +
         'answers 403: the admin-only tools need admin=true here.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({}),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () =>
       run(async () =>
@@ -47,8 +51,9 @@ export function registerAccountTools(
         'The activity feed of the authenticated account: the latest pipeline of ' +
         'every repository it can see, newest first. This is the "what is the state ' +
         'of everything" call — one request instead of list_pipelines per repository.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({}),
+      annotations: READ_ONLY,
+      outputSchema: marked(),
     },
     async () =>
       run(async () => {

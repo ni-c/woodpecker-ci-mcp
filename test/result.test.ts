@@ -4,6 +4,7 @@ import { WoodpeckerApiError } from '../src/api.js';
 import { REDACTED } from '../src/normalize.js';
 import {
   budgetedJson,
+  ResultTooLargeError,
   budgetedList,
   MAX_RESULT_BYTES,
   run,
@@ -13,10 +14,15 @@ import {
   untrustedResult,
 } from '../src/result.js';
 
-function textOf(result: {
-  content: { type: string; text?: string }[];
-}): string {
-  return result.content.map((block) => block.text ?? '').join('\n');
+// `run` answers with `CallToolResult | InputRequiredResult`, and only the
+// first half carries `content`. Typing the parameter off `run` itself keeps
+// both halves acceptable — a bare `{ content?: unknown }` would be a weak
+// type, which an input request overlaps in no property at all — and the cast
+// then says out loud that every call in this file is on the result half.
+function textOf(result: Awaited<ReturnType<typeof run>>): string {
+  return ((result as { content?: unknown }).content as { text?: string }[])
+    .map((block) => block.text ?? '')
+    .join('\n');
 }
 
 describe('budgetedList', () => {
@@ -119,12 +125,79 @@ describe('budgetedJson', () => {
     expect(parsed.truncated.note).toContain('Narrow the request');
   });
 
+  // The three below are the regression for a hang, not for a wrong answer, and
+  // they all carry a timeout because the failure mode is that they never
+  // return. The shortener replaced its longest string with 200 characters plus
+  // a ~30-character note and then measured the document again — but the
+  // replacement is *longer* than the 200-character threshold, so the very same
+  // slot was picked, rewritten to the identical text, and measured to the
+  // identical size, for ever. Node is single-threaded, so the server answered
+  // nothing at all afterwards, not even a different tool, and only killing the
+  // process ended it.
+  //
+  // The existing cases above could not catch it: one long string fits after
+  // round one, fifty shortened strings are 11 kB and fit, and four thousand
+  // *short* strings never enter the loop. The shape that hangs is many long
+  // strings whose shortened sum is still over budget — 400 waiting tasks from
+  // get_queue_info, or a .woodpecker.yml with 500 long step names — and it was
+  // the only shape not covered.
+  it(
+    'returns on many long strings whose shortened sum is still over budget',
+    { timeout: 10_000 },
+    () => {
+      const parsed = JSON.parse(
+        budgetedJson({
+          tasks: Array.from({ length: 600 }, (_, i) => ({
+            id: i,
+            data: 'x'.repeat(300),
+          })),
+        })
+      );
+      expect(parsed.tasks.length).toBeLessThan(600);
+      expect(parsed.truncated.lists['tasks'].total).toBe(600);
+    }
+  );
+
+  it(
+    'returns when the oversized strings are not in an array either',
+    { timeout: 10_000 },
+    () => {
+      // No array to drop entries from, so the string pass has to run out of
+      // candidates and fall through to the honest give-up rather than spinning.
+      // The give-up used to be an envelope carrying an `error` field, which
+      // is a different shape from what a tool declares it returns — and the
+      // SDK refuses that. So it throws, and `run` turns it into an error.
+      const wide: Record<string, string> = {};
+      for (let i = 0; i < 600; i++) wide[`step_${i}`] = 'x'.repeat(300);
+      expect(() => budgetedJson(wide)).toThrow(ResultTooLargeError);
+    }
+  );
+
+  it(
+    'returns on text that is already at the shortening marker',
+    { timeout: 10_000 },
+    () => {
+      // summarizePipeline cuts a commit message to 200 characters plus an
+      // ellipsis — 201, one over the threshold — so get_pipeline_feed reached the
+      // loop with strings that were already as short as shortening could make
+      // them. Nothing here has to shrink; it has to terminate.
+      const parsed = JSON.parse(
+        budgetedJson({
+          pipelines: Array.from({ length: 700 }, (_, i) => ({
+            number: i,
+            message: `${'x'.repeat(200)}…`,
+          })),
+        })
+      );
+      expect(parsed.pipelines.length).toBeLessThan(700);
+    }
+  );
+
   it('gives up honestly when there is nothing left to shorten', () => {
     const wide: Record<string, number> = {};
     for (let i = 0; i < 20_000; i++) wide[`key_number_${i}`] = i;
-    expect(JSON.parse(budgetedJson(wide)).error).toContain(
-      'result size budget'
-    );
+    expect(() => budgetedJson(wide)).toThrow(ResultTooLargeError);
+    expect(() => budgetedJson(wide)).toThrow(/result size budget/);
   });
 
   it('scrubs credential-shaped fields wherever they sit', () => {
@@ -149,6 +222,18 @@ describe('untrustedResult', () => {
 });
 
 describe('sanitizeErrorBody', () => {
+  it('drops markup that does not open with a doctype or <html>', () => {
+    // A WAF block page can open with a comment, and an upstream that answers
+    // errors in XML is exactly as useless to the model as one that answers in
+    // HTML. The old check required a doctype or an <html> tag first and let
+    // both of these through.
+    expect(
+      sanitizeErrorBody('<?xml version="1.0"?><error>denied</error>')
+    ).toBe('(HTML error page omitted)');
+    expect(
+      sanitizeErrorBody('<!-- blocked by policy -->\n<html>x</html>')
+    ).toBe('(HTML error page omitted)');
+  });
   it('drops an HTML error page entirely', () => {
     expect(sanitizeErrorBody('<!doctype html><html>...</html>')).toBe(
       '(HTML error page omitted)'

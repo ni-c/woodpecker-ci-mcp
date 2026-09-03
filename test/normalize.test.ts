@@ -45,8 +45,10 @@ describe('redactAgent', () => {
   });
 
   it('leaves an agent without a token alone', () => {
-    const agent = agentFixture({ token: undefined });
-    delete agent.token;
+    // Not `delete agent.token`: the fixture types `token` as required, so the
+    // delete is a type error and the field has to be absent rather than
+    // undefined — which is the state this test is about in the first place.
+    const { token: _token, ...agent } = agentFixture();
     expect(redactAgent(agent).token).toBeUndefined();
   });
 

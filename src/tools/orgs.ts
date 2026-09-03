@@ -1,9 +1,4 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { pathSegment, query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   orgFullNameParam,
@@ -11,11 +6,19 @@ import {
   pageParam,
   perPageParam,
 } from '../schema.js';
+import { z } from 'zod';
+import { plain } from '../output-schema.js';
+
+import { pathSegment, query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
+import { guarded } from '../guard.js';
+import { listOf } from '../normalize.js';
+import { budgetedList, jsonResult, run, sentenceResult } from '../result.js';
 import type { ToolContext } from './context.js';
 
 export function registerOrgTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_organizations',
@@ -26,11 +29,12 @@ export function registerOrgTools(
         'Note that an entry with is_user=true is a personal account, not a real ' +
         'organization — Woodpecker models both the same way, and org-level secrets ' +
         'work for both.',
-      inputSchema: {
+      inputSchema: z.object({
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -46,8 +50,9 @@ export function registerOrgTools(
     {
       title: 'Get an organization',
       description: 'Returns one organization by its numeric id.',
-      inputSchema: { org_id: orgIdParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ org_id: orgIdParam }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ org_id }) =>
       run(async () => jsonResult(await api.get(`/orgs/${org_id}`)))
@@ -60,8 +65,9 @@ export function registerOrgTools(
       description:
         'Resolves an organization name to its id — the id every other org-level ' +
         'call needs, including org-scoped secrets and registries.',
-      inputSchema: { name: orgFullNameParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ name: orgFullNameParam }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ name }) =>
       run(async () =>
@@ -80,8 +86,9 @@ export function registerOrgTools(
       description:
         'What the authenticated account may do in this organization: member and ' +
         'admin. Org-level secrets and agents need admin here.',
-      inputSchema: { org_id: orgIdParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ org_id: orgIdParam }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ org_id }) =>
       run(async () => jsonResult(await api.get(`/orgs/${org_id}/permissions`)))
@@ -98,19 +105,31 @@ export function registerOrgTools(
         'secrets, registries and agents. Admin only. It does not touch the forge, ' +
         'and it does not delete the repositories — but anything of theirs that ' +
         'relied on an org-level secret stops working. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         org_id: orgIdParam,
         confirm_token: confirmTokenParam.optional(),
+      }),
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
-      annotations: { destructiveHint: true, idempotentHint: false },
+      outputSchema: plain(),
     },
-    async ({ org_id, confirm_token }) =>
+    async ({ org_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_organization',
-            targets: [String(org_id)],
+            targets: [`org:${org_id}`],
             what: `delete organization ${org_id} from Woodpecker`,
             consequence:
               'Its organization-level secrets, registries and agents go with it. ' +
@@ -120,7 +139,9 @@ export function registerOrgTools(
           },
           async () => {
             await api.delete(`/orgs/${org_id}`);
-            return textResult(`Organization ${org_id} was deleted.`);
+            return sentenceResult(`Organization ${org_id} was deleted.`, {
+              deleted_org_id: org_id,
+            });
           }
         )
       )

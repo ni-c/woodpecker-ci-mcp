@@ -1,0 +1,159 @@
+# Throwaway Woodpecker CI for `npm run test:integration`.
+#
+# Four services, because Woodpecker cannot exist alone. It has no accounts of
+# its own — it authenticates against a **forge** — and it cannot run anything
+# without an **agent**. So the stack is: a Gitea, a one-shot container that
+# creates the OAuth application in it, the Woodpecker server, and an agent.
+#
+# The ordering is the whole difficulty. Woodpecker needs the OAuth client id and
+# secret at startup; only Gitea can produce them; Gitea has to be running first.
+# Woodpecker's server image is distroless, so there is no shell to wrap its
+# entrypoint in a wait. The way out is Woodpecker's `_FILE` convention: the
+# init container writes the two values into a shared volume, and
+# `service_completed_successfully` holds the server back until it has.
+#
+# Not a managed stack: brought up, driven by the suite, destroyed with `down -v`
+# afterwards. Bound to 127.0.0.1 only.
+services:
+  gitea:
+    # 1.26 dropped the CSRF token entirely — no hidden field, no cookie, no
+    # header, no meta tag — in favour of Go's net/http CrossOriginProtection,
+    # which looks at `Sec-Fetch-Site` and `Origin` instead. `bootstrap()` used
+    # to scrape that token out of two forms, so anything below 1.26 needs the
+    # older bootstrap and will fail here on a form field it cannot find.
+    image: ${GITEA_IMAGE:-gitea/gitea:1.27}
+    environment:
+      # `gitea:3000` because this is the address Woodpecker resolves from
+      # inside the compose network, and the OAuth redirect has to agree with it.
+      GITEA__server__ROOT_URL: http://gitea:3000/
+      GITEA__server__DOMAIN: gitea
+      GITEA__server__SSH_DOMAIN: gitea
+      GITEA__security__INSTALL_LOCK: 'true'
+      # Every container here has a private address, and Gitea's webhook
+      # delivery declines those by default without saying so anywhere.
+      GITEA__webhook__ALLOWED_HOST_LIST: '*'
+      GITEA__database__DB_TYPE: sqlite3
+      GITEA__database__PATH: /data/gitea.db
+      USER_UID: '1000'
+      USER_GID: '1000'
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        /usr/bin/entrypoint /usr/bin/s6-svscan /etc/s6 &
+        # Gitea has no environment variable that seeds an account and its
+        # sign-up is a browser form, so the CLI is the headless way in. It
+        # needs the database, hence the wait.
+        until su git -c "gitea admin user list" >/dev/null 2>&1; do sleep 1; done
+        su git -c "gitea admin user create --username integration \
+          --password integration-not-a-secret --email integration@example.net \
+          --admin --must-change-password=false" || true
+        wait
+    tmpfs:
+      - /data
+    ports:
+      - '127.0.0.1:3200:3000'
+
+  # Creates the OAuth application Woodpecker signs in with, and writes its two
+  # halves where the server can read them. One shot: it exits, and the server
+  # waits for that.
+  oauth:
+    image: ${CURL_IMAGE:-curlimages/curl:8.22.0}
+    depends_on:
+      - gitea
+    # The image runs as an unprivileged user and a fresh named volume is
+    # root-owned, so writing to it fails with a bare "Permission denied" that
+    # says nothing about ownership.
+    user: '0:0'
+    volumes:
+      - oauth:/oauth
+    entrypoint: ['/bin/sh', '-c']
+    command:
+      - |
+        set -e
+        until curl -sf http://gitea:3000/api/v1/version > /dev/null; do sleep 2; done
+        # Gitea creates the account asynchronously after its own start, so the
+        # credentials may not work for a few seconds.
+        until curl -sf -u integration:integration-not-a-secret \
+          http://gitea:3000/api/v1/user > /dev/null; do sleep 2; done
+        curl -sf -u integration:integration-not-a-secret \
+          -H 'content-type: application/json' \
+          -d '{"name":"woodpecker","redirect_uris":["http://127.0.0.1:8010/authorize"],"confidential_client":true}' \
+          http://gitea:3000/api/v1/user/applications/oauth2 > /oauth/app.json
+        sed -n 's/.*"client_id":"\([^"]*\)".*/\1/p' /oauth/app.json > /oauth/client
+        sed -n 's/.*"client_secret":"\([^"]*\)".*/\1/p' /oauth/app.json > /oauth/secret
+        test -s /oauth/client && test -s /oauth/secret
+
+  woodpecker:
+    image: ${WOODPECKER_IMAGE:-woodpeckerci/woodpecker-server:v3.18}
+    depends_on:
+      oauth:
+        condition: service_completed_successfully
+    environment:
+      WOODPECKER_OPEN: 'true'
+      # Two hosts, because two different parties have to reach this server from
+      # opposite sides of the compose network. WOODPECKER_HOST is where the
+      # *browser* — here, the bootstrap script — completes OAuth, so it has to
+      # be the published loopback port. The webhook Woodpecker installs in the
+      # forge would otherwise carry that same address, and inside the Gitea
+      # container `127.0.0.1:8010` is Gitea itself. The name of the second
+      # setting is worth writing down: it is WOODPECKER_EXPERT_WEBHOOK_HOST,
+      # not WOODPECKER_WEBHOOK_HOST, and the wrong one is simply ignored — the
+      # hook is then installed with the unreachable address and nothing
+      # complains. Read the hook back from the forge to be sure.
+      WOODPECKER_HOST: http://127.0.0.1:8010
+      WOODPECKER_EXPERT_WEBHOOK_HOST: http://woodpecker:8000
+      WOODPECKER_GITEA: 'true'
+      WOODPECKER_GITEA_URL: http://gitea:3000
+      # Woodpecker's own `_FILE` convention. Nothing else here can bridge the
+      # ordering: the values do not exist until Gitea has been asked, and this
+      # image has no shell to wait in.
+      WOODPECKER_GITEA_CLIENT_FILE: /oauth/client
+      WOODPECKER_GITEA_SECRET_FILE: /oauth/secret
+      WOODPECKER_ADMIN: integration
+      WOODPECKER_AGENT_SECRET: integration-agent-not-a-secret
+      WOODPECKER_DATABASE_DRIVER: sqlite3
+      WOODPECKER_LOG_LEVEL: info
+    volumes:
+      - oauth:/oauth:ro
+      # The long form, because the mode matters: a tmpfs mounted with the
+      # default 0755 is root-owned, this image runs as a non-root user, and
+      # SQLite then fails with "unable to open database file: no such file or
+      # directory" — which reads like a wrong path rather than a wrong owner.
+      - type: tmpfs
+        target: /var/lib/woodpecker
+        tmpfs:
+          mode: 0o1777
+    ports:
+      - '127.0.0.1:8010:8000'
+
+  agent:
+    image: ${WOODPECKER_AGENT_IMAGE:-woodpeckerci/woodpecker-agent:v3.18}
+    depends_on:
+      - woodpecker
+    environment:
+      WOODPECKER_SERVER: woodpecker:9000
+      WOODPECKER_AGENT_SECRET: integration-agent-not-a-secret
+      WOODPECKER_MAX_WORKFLOWS: '1'
+      # The trap that makes a pipeline hang instead of failing loudly. The
+      # agent starts step containers on the **host** daemon, which puts them on
+      # a fresh per-pipeline network where "gitea" resolves to nothing — so the
+      # clone step exits 128 and the run never reaches the step that would
+      # produce a log. Attaching them to this stack's own network is what makes
+      # the forge reachable from inside a step.
+      WOODPECKER_BACKEND_DOCKER_NETWORK: woodpecker-mcp-integration
+    volumes:
+      # The agent runs pipeline steps as containers on the host's daemon. This
+      # is the one place the throwaway stack touches something outside itself,
+      # and it is why the suite must not be pointed at anything but a
+      # workstation or a CI runner.
+      - /var/run/docker.sock:/var/run/docker.sock
+
+volumes:
+  oauth:
+
+networks:
+  # Named explicitly rather than left to compose, which derives it from the
+  # directory name: the agent has to name this network in an environment
+  # variable, and "test/integration" is not a name worth depending on.
+  default:
+    name: woodpecker-mcp-integration

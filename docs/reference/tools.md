@@ -5,14 +5,24 @@ One section per tool. All 71 are registered unless you say otherwise:
 `essential` selects the ones marked **essential** below — see
 [choosing the tools that load](/guide/configuration#choosing-the-tools-that-load).
 
+Every tool declares an `outputSchema` and answers with `structuredContent` beside
+the text block, so a client can use a result without parsing prose. The tools
+that report pushed content carry `untrusted: true` and `source: "woodpecker"` as
+fields of that object — build logs are the raw stdout of arbitrary containers.
+
 Three markers recur:
 
 - **essential** — part of the `essential` preset.
 - 🛡 **admin** — needs an instance administrator. Woodpecker answers any other
   account with 403; `get_current_user` says which you have.
-- 👤 **two-step** — the first call returns a confirmation token bound to those
-  exact arguments and does nothing else; a second call carrying the token acts.
-  The token is single-use and expires after five minutes.
+- 👤 **asks a person** — through MCP elicitation, a dialog the model cannot answer
+  on its behalf, and which nothing proceeds without. Where the client cannot show
+  one, the first call returns a `confirm_token` bound to those exact arguments and
+  does nothing else; a second call carrying it acts. That token is single-use,
+  expires after five minutes, and proves only that the call was made twice with
+  the same arguments — the fallback text says so. `ELICITATION=false` takes it
+  deliberately; it never removes the guard. See
+  [Asking a person](/guide/approval).
 
 Repository ids are numeric. `lookup_repository` turns an `owner/name` pair into
 one; nothing in the web UI shows it.
@@ -78,16 +88,25 @@ Parameters: `forge_remote_id`.
 
 ### `update_repository`
 
-👤 (when granting trust) — Changes Woodpecker's settings for a repository.
-Only the fields you pass are touched. `trusted_network`, `trusted_volumes` and
-`trusted_security` are folded into the nested object the API expects; all three
-are admin-only and `trusted_security` lets a pipeline take over the agent host.
-Setting any of them to `true` is two-step; withdrawing trust, and every other
-field, applies on the first call.
+👤 (when granting trust, lowering `require_approval` or going `public`) —
+Changes Woodpecker's settings for a repository. Only the fields you pass are
+touched. `trusted_network`, `trusted_volumes` and `trusted_security` are folded
+into the nested object the API expects; all three are admin-only and
+`trusted_security` lets a pipeline take over the agent host.
+
+Three changes are two-step, and all three for the same reason: they widen what
+somebody else's code can reach. Granting any `trusted_*` flag. Lowering
+`require_approval` — the setting that decides whether a fork's pipeline waits for
+a person before it runs with this repository's secrets, which is the gate
+[`approve_pipeline`](#approve-pipeline) exists to hold. Setting `visibility` to
+`public`, which makes the logs those builds write readable by anyone. Naming
+either of the last two costs one extra read, because "lowering" is a comparison
+with the current setting; tightening them, withdrawing trust and every other
+field still apply on the first call.
 
 Parameters: `repo_id`, `config_file`, `timeout`, `visibility`, `allow_pr`,
 `allow_deploy`, `require_approval`, `cancel_previous_pipeline_events`,
-`trusted_network`, `trusted_volumes`, `trusted_security`.
+`trusted_network`, `trusted_volumes`, `trusted_security`, `confirm_token`.
 
 ### `repair_repository`
 
@@ -108,11 +127,16 @@ Parameters: `repo_id`, `to`, `confirm_token`.
 
 ### `chown_repository`
 
-Makes this account the repository's owner in Woodpecker. The owner's forge token
-is what Woodpecker uses to read the repository and report build status, so this
-is the fix when the previous owner left.
+👤 — Makes this account the repository's owner in Woodpecker. The owner's forge
+token is what Woodpecker uses to read the repository and report build status, so
+this is the fix when the previous owner left.
 
-Parameters: `repo_id`.
+Asked about because of what the ownership *is*: every pipeline of this repository
+afterwards runs under the calling account's forge token, so its reach over the
+forge becomes this repository's reach. `delete_user` already cites that in its own
+reasoning; the tool that performs the transfer did not ask.
+
+Parameters: `repo_id`, `confirm_token`.
 
 ### `delete_repository`
 
@@ -270,10 +294,17 @@ Parameters: `scope`, `repo_id`, `org_id`, `name`, `value`, `events`, `images`,
 
 ### `update_secret`
 
-👤 (when passing `value`) — Changes a secret; passing `value` rotates it,
-which is two-step because the old value was never readable through the API and
-is gone once it is overwritten. `events` and `images` are replaced wholesale
-rather than merged, so pass the complete list.
+👤 (when passing `value`, or widening who may read the secret) — Changes a
+secret. Passing `value` rotates it, which is two-step because the old value was
+never readable through the API and is gone once it is overwritten.
+
+So is widening the exposure, and that is not cosmetics either: adding a
+`pull_request` event hands the secret to builds of code that arrived in a pull
+request, including from a fork, and emptying `images` removes the restriction on
+which container images may read it. Narrowing either, and editing the note, apply
+on the first call. `events` and `images` are replaced wholesale rather than
+merged, so pass the complete list — and naming either costs one extra read,
+because "widening" is a comparison with the secret's current setting.
 
 Parameters: `scope`, `repo_id`, `org_id`, `name`, `value`, `events`, `images`,
 `note`, `confirm_token`.
@@ -310,10 +341,14 @@ Parameters: `scope`, `repo_id`, `org_id`, `address`, `username`, `password`.
 
 ### `update_registry`
 
-Changes username or password. The address cannot be changed — delete and
-re-create instead.
+👤 (when passing `password`) — Changes username or password. The address cannot
+be changed — delete and re-create instead. Replacing the password is two-step for
+the same reason [`delete_registry`](#delete-registry) is: Woodpecker strips it
+from every response, so the value being overwritten is not readable anywhere and
+nothing brings it back. Correcting a username alone applies on the first call.
 
-Parameters: `scope`, `repo_id`, `org_id`, `address`, `username`, `password`.
+Parameters: `scope`, `repo_id`, `org_id`, `address`, `username`, `password`,
+`confirm_token`.
 
 ### `delete_registry`
 
@@ -449,19 +484,23 @@ Parameters: `login`, `forge_id`, `forge_remote_id`.
 
 ### `create_user`
 
-🛡 — Registers an account ahead of its first login. This creates nothing in the
-forge and grants no access there — it is how you make someone an administrator
-before they first log in. A login that does not match the forge's spelling
-creates a second, unused account rather than the one you meant.
+🛡👤 (when granting admin) — Registers an account ahead of its first login. This
+creates nothing in the forge and grants no access there — it is how you make
+someone an administrator before they first log in. A login that does not match the
+forge's spelling creates a second, unused account rather than the one you meant.
 
-Parameters: `login`, `email`, `admin`.
+The same field, and only that field, as `update_user` below. Until this was added,
+`update_user(admin: true)` asked and `create_user(admin: true)` did not — the same
+privilege by the same flag, with a dialog in front of one of them.
+
+Parameters: `login`, `email`, `admin`, `confirm_token`.
 
 ### `update_user`
 
 🛡👤 (when granting admin) — Changes email or the admin flag. Granting
 `admin` gives full control of the instance, including every secret of every
-repository, which is why that one field is two-step. Correcting an email applies
-on the first call.
+repository, which is why that one field asks. Correcting an email applies on the
+first call.
 
 Parameters: `login`, `email`, `admin`, `confirm_token`.
 

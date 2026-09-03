@@ -1,7 +1,7 @@
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 
 import type { WoodpeckerApi } from '../api.js';
-import type { ConfirmationStore } from '../confirm.js';
+import type { Approver, ConfirmationStore } from 'mcp-approval';
 
 /**
  * What every tool module gets.
@@ -17,6 +17,7 @@ import type { ConfirmationStore } from '../confirm.js';
 export interface ToolContext {
   api: WoodpeckerApi;
   confirmations: ConfirmationStore;
+  approval: Approver;
   readOnly: boolean;
 }
 

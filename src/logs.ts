@@ -74,7 +74,9 @@ export function decodeLog(
   const maxBytes = options.maxBytes ?? MAX_LOG_BYTES;
 
   const exitEntry = entries.find((entry) => entry.type === LOG_EXIT_CODE);
-  const exitCode = exitEntry ? Number(decodeChunk(exitEntry.data)) : undefined;
+  const exitCode = exitEntry
+    ? Number(decodeChunk(exitEntry.data, maxBytes, options.from).text)
+    : undefined;
 
   const output = entries
     .filter((entry) => entry.type === undefined || entry.type <= LOG_STDERR)
@@ -86,8 +88,13 @@ export function decodeLog(
       ? output.slice(Math.max(0, totalLines - options.limit))
       : output.slice(0, options.limit);
 
+  let chunkCut = false;
   const rendered = selected
-    .map((entry) => decodeChunk(entry.data).replace(/\n$/, ''))
+    .map((entry) => {
+      const chunk = decodeChunk(entry.data, maxBytes, options.from);
+      if (chunk.truncated) chunkCut = true;
+      return chunk.text.replace(/\n$/, '');
+    })
     .join('\n');
 
   const { text, truncated } = capBytes(rendered, maxBytes, options.from);
@@ -97,7 +104,7 @@ export function decodeLog(
     lines: selected.length,
     totalLines,
     from: options.from,
-    truncatedBytes: truncated,
+    truncatedBytes: truncated || chunkCut,
   };
   if (exitCode !== undefined && Number.isFinite(exitCode)) {
     result.exitCode = exitCode;
@@ -105,9 +112,30 @@ export function decodeLog(
   return result;
 }
 
-function decodeChunk(data: string | undefined): string {
-  if (!data) return '';
-  return stripControlCharacters(Buffer.from(data, 'base64').toString('utf8'));
+/**
+ * Decodes one base64 chunk, cutting it to the byte budget *before* stripping.
+ *
+ * Before, not after. The `capBytes` call in {@link decodeLog} runs on the joined
+ * text and protects the model's context; this one protects the event loop, which
+ * is the thing a single-threaded server cannot get back. A chunk is whatever the
+ * container wrote between two flushes, so "one line" can be megabytes, and every
+ * pass in {@link stripControlCharacters} walks all of it. Nothing is lost that
+ * the byte budget would have kept: a single chunk larger than the whole log
+ * budget cannot be shown in full either way, and it is cut from the end the
+ * caller is reading away from.
+ */
+function decodeChunk(
+  data: string | undefined,
+  maxBytes: number,
+  from: 'head' | 'tail'
+): { text: string; truncated: boolean } {
+  if (!data) return { text: '', truncated: false };
+  const decoded = Buffer.from(data, 'base64').toString('utf8');
+  const capped = capBytes(decoded, maxBytes, from);
+  return {
+    text: stripControlCharacters(capped.text),
+    truncated: capped.truncated,
+  };
 }
 
 /**
@@ -122,22 +150,42 @@ function decodeChunk(data: string | undefined): string {
  * — they are the structure of a log.
  */
 export function stripControlCharacters(text: string): string {
+  const escapesRemoved = text
+    // OSC (ESC ]), terminated by BEL or ST. Matched before CSI because its
+    // payload may contain anything, including something CSI-shaped.
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b\][\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, '')
+    // CSI (ESC [): colour, cursor movement, line clearing.
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
+    // The remaining two-character escapes, and a lone trailing ESC.
+    // eslint-disable-next-line no-control-regex
+    .replace(/\u001b[@-Z\\-_]?/g, '')
+    .replace(/\r\n/g, '\n');
+
   return (
-    text
-      // OSC (ESC ]), terminated by BEL or ST. Matched before CSI because its
-      // payload may contain anything, including something CSI-shaped.
-      // eslint-disable-next-line no-control-regex
-      .replace(/\u001b\][\s\S]*?(?:\u0007|\u009c|\u001b\\|$)/g, '')
-      // CSI (ESC [): colour, cursor movement, line clearing.
-      // eslint-disable-next-line no-control-regex
-      .replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, '')
-      // The remaining two-character escapes, and a lone trailing ESC.
-      // eslint-disable-next-line no-control-regex
-      .replace(/\u001b[@-Z\\-_]?/g, '')
-      // A progress bar overwrites its own line with a carriage return, and
-      // only the last state of that line was ever meant to be read.
-      .replace(/\r\n/g, '\n')
-      .replace(/[^\n]*\r/g, '')
+    escapesRemoved
+      .split('\n')
+      // A progress bar overwrites its own line with a carriage return, and only
+      // the last state of that line was ever meant to be read — so of each line,
+      // keep what follows its last `\r`.
+      //
+      // Deliberately not a regular expression. This was `[^\n]*\r`, where the
+      // star runs to the end of the line, finds no `\r`, and then backtracks one
+      // character at a time — from every start position in the line, which is
+      // quadratic in the line's length. Measured: 10 000 characters 29 ms,
+      // 200 000 characters 10.5 seconds, one megabyte over 48 seconds, with the
+      // event loop blocked throughout, so the server answered nothing at all in
+      // the meantime. A four-megabyte comment line is legal YAML, and
+      // get_pipeline_config strips whatever the repository put in
+      // `.woodpecker.yml`.
+      //
+      // Excluding `\r` from the class — `[^\n\r]*\r` — reads like the fix and is
+      // not one: V8 does not use the disjointness to skip the backtracking, and
+      // the same 200 kB line still took 11.8 seconds, measured here. lastIndexOf
+      // is one backwards scan per line and does the megabyte in a millisecond.
+      .map((line) => line.slice(line.lastIndexOf('\r') + 1))
+      .join('\n')
       // Everything else below space, plus DEL -- but not tab or newline,
       // which are the structure of a log.
       // eslint-disable-next-line no-control-regex

@@ -1,6 +1,5 @@
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { InMemoryTransport } from '@modelcontextprotocol/sdk/inMemory.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { Client, InMemoryTransport } from '@modelcontextprotocol/client';
+import type { CallToolResult } from '@modelcontextprotocol/client';
 import { vi } from 'vitest';
 
 import type { Config } from '../src/config.js';
@@ -16,6 +15,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     token: TOKEN,
     insecureTls: false,
     readOnly: false,
+    elicitation: true,
     allowTools: undefined,
     denyTools: undefined,
     ...overrides,
@@ -123,18 +123,43 @@ export function stubFetch(routes: Routes = {}): FetchStub {
   return { calls };
 }
 
+/** How a client that can show a dialog answers it. */
+export type ElicitBehaviour = 'accept' | 'decline' | 'cancel';
+
+/**
+ * Connects a client to the real server.
+ *
+ * Without `elicit` the client declares no elicitation capability, which is the
+ * case the two-call token exists for and what every other test drives. With it,
+ * the client answers the dialog and `prompts` records what the server put in
+ * front of the user.
+ */
 export async function connect(
-  overrides: Partial<Config> = {}
-): Promise<Client> {
+  overrides: Partial<Config> = {},
+  elicit?: ElicitBehaviour
+): Promise<Client & { prompts: string[] }> {
   const server = createServer(testConfig(overrides));
   const [clientTransport, serverTransport] =
     InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: 'test', version: '0.0.0' });
+  const prompts: string[] = [];
+  const client = new Client(
+    { name: 'test', version: '0.0.0' },
+    elicit === undefined ? {} : { capabilities: { elicitation: {} } }
+  );
+  if (elicit !== undefined) {
+    client.setRequestHandler('elicitation/create', (request) => {
+      const params = request.params as { message?: string };
+      prompts.push(params.message ?? '');
+      if (elicit === 'cancel') return { action: 'cancel' };
+      if (elicit === 'decline') return { action: 'decline' };
+      return { action: 'accept', content: { confirm: true } };
+    });
+  }
   await Promise.all([
     client.connect(clientTransport),
     server.connect(serverTransport),
   ]);
-  return client;
+  return Object.assign(client, { prompts });
 }
 
 export async function call(
@@ -163,7 +188,7 @@ export function jsonOf(result: CallToolResult): Record<string, unknown> {
  * Calls a guarded tool the way a client has to: once to be told no and handed a
  * token, then again with it. Returns the second result — the one that acted.
  */
-export async function callConfirmed(
+export async function confirmed(
   client: Client,
   name: string,
   args: Record<string, unknown>

@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { REDACTED } from '../src/normalize.js';
 import {
   call,
-  callConfirmed,
+  confirmed,
   connect,
   jsonOf,
   pipelineFixture,
@@ -11,6 +11,7 @@ import {
   repoFixture,
   stubFetch,
   textOf,
+  tokenOf,
 } from './harness.js';
 
 /**
@@ -199,7 +200,7 @@ describe('update_user does not blank the fields it was not given', () => {
       'GET /users/octocat': { json: stored },
       'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
     });
-    await callConfirmed(await connect(), 'update_user', {
+    await confirmed(await connect(), 'update_user', {
       login: 'octocat',
       forge_id: 1,
       admin: true,
@@ -222,7 +223,7 @@ describe('update_user does not blank the fields it was not given', () => {
       },
       'PATCH /users/octocat': { json: { id: 0, login: '', email: '' } },
     });
-    const result = await callConfirmed(await connect(), 'update_user', {
+    const result = await confirmed(await connect(), 'update_user', {
       login: 'octocat',
       forge_id: 1,
       admin: true,
@@ -365,5 +366,288 @@ describe('repository-controlled text is marked as untrusted', () => {
     stubFetch({ 'GET /pipelines': { json: [pipelineFixture()] } });
     const result = await call(await connect(), 'list_queued_pipelines', {});
     expect(textOf(result)).toContain(marker);
+  });
+});
+
+describe('a confirmation is bound to the arguments it was issued for', () => {
+  /**
+   * The regression for a confirmation that authorised the operation nobody was
+   * asked about.
+   *
+   * The key was built with `setResourceKey`, which sorts its targets — right for
+   * a set, wrong for these tools, whose targets are ordered tuples of small
+   * integers that look alike. `["5","12"]` and `["12","5"]` hashed to the same
+   * key, and the second call's arguments were never compared with the first's.
+   * So a person who read "approve blocked pipeline 12 of repository 5 … runs
+   * that fork's code with this repository's secrets" and agreed was, with the
+   * same token, approving pipeline 5 of repository 12: a different fork, and the
+   * secrets of a repository that was never mentioned.
+   *
+   * `test/approval.test.ts` covers the mechanism; these cover the binding, which
+   * is the part that was broken. `confirmed()` in the harness cannot: it re-sends
+   * the first call's arguments by construction.
+   */
+  it('refuses a token issued for the reversed pair of ids', async () => {
+    const stub = stubFetch({
+      // Routed so that a server which accepted the token would succeed here and
+      // be caught, rather than failing on an unstubbed path for the wrong reason.
+      'POST /repos/12/pipelines/5/approve': { json: pipelineFixture() },
+      'POST /repos/5/pipelines/12/approve': { json: pipelineFixture() },
+    });
+    const client = await connect();
+
+    const first = await call(client, 'approve_pipeline', {
+      repo_id: 5,
+      number: 12,
+    });
+    const swapped = await call(client, 'approve_pipeline', {
+      repo_id: 12,
+      number: 5,
+      confirm_token: tokenOf(first),
+    });
+
+    expect(swapped.isError).toBe(true);
+    expect(textOf(swapped)).toContain('invalid, expired');
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('names the pair it was issued for, in the order it was issued', async () => {
+    stubFetch({ 'POST /repos/5/pipelines/12/approve': { json: {} } });
+    const first = await call(await connect(), 'approve_pipeline', {
+      repo_id: 5,
+      number: 12,
+    });
+    expect(textOf(first)).toContain('pipeline 12 of repository 5');
+  });
+
+  it('refuses a token issued for the reversed scope of a log deletion', async () => {
+    const stub = stubFetch({
+      [`DELETE /repos/12/logs/5/7`]: { status: 204 },
+      [`DELETE /repos/5/logs/12/7`]: { status: 204 },
+    });
+    const client = await connect();
+    const first = await call(client, 'delete_step_logs', {
+      repo_id: 5,
+      number: 12,
+      step_id: 7,
+    });
+    const swapped = await call(client, 'delete_step_logs', {
+      repo_id: 12,
+      number: 5,
+      step_id: 7,
+      confirm_token: tokenOf(first),
+    });
+    expect(swapped.isError).toBe(true);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('refuses a token when the second call smuggles an extra field', async () => {
+    // The targets say what is touched, the fingerprint says with what. A token
+    // for "grant trusted_network" must not carry a body it was not shown.
+    const stub = stubFetch({ [`PATCH /repos/${REPO_ID}`]: { json: {} } });
+    const client = await connect();
+    const first = await call(client, 'update_repository', {
+      repo_id: REPO_ID,
+      trusted_network: true,
+    });
+    const smuggled = await call(client, 'update_repository', {
+      repo_id: REPO_ID,
+      trusted_network: true,
+      timeout: 5,
+      confirm_token: tokenOf(first),
+    });
+    expect(smuggled.isError).toBe(true);
+    expect(stub.calls).toHaveLength(0);
+  });
+});
+
+describe('the fork gate cannot be turned off without asking', () => {
+  /**
+   * `approve_pipeline` is the most carefully reasoned guard in this server, and
+   * two ungated calls made every one of its confirmations optional:
+   * `update_repository(require_approval: "none", visibility: "public")` in one
+   * call, and `update_secret(events: [... "pull_request"], images: [])` in
+   * another. Together: a fork's pull request runs unapproved, reads the secret,
+   * prints it, and the log is world-readable. The point is not that an
+   * administrator may do this — it is that the model which the code tells three
+   * times over is holding somebody else's build log did it without a prompt.
+   */
+  const currentRepo = { [`GET /repos/${REPO_ID}`]: { json: repoFixture() } };
+
+  it('asks before require_approval is lowered', async () => {
+    const stub = stubFetch({
+      ...currentRepo,
+      [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
+    });
+    const result = await call(await connect(), 'update_repository', {
+      repo_id: REPO_ID,
+      require_approval: 'none',
+    });
+    expect(textOf(result)).toContain('confirm_token');
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('asks before a repository is made publicly readable', async () => {
+    const stub = stubFetch({
+      ...currentRepo,
+      [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
+    });
+    const result = await call(await connect(), 'update_repository', {
+      repo_id: REPO_ID,
+      visibility: 'public',
+    });
+    expect(textOf(result)).toContain('confirm_token');
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('raises require_approval on the first call, because that direction is safe', async () => {
+    const stub = stubFetch({
+      ...currentRepo,
+      [`PATCH /repos/${REPO_ID}`]: { json: repoFixture() },
+    });
+    const result = await call(await connect(), 'update_repository', {
+      repo_id: REPO_ID,
+      require_approval: 'all_events',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(true);
+  });
+
+  it('does not read the repository at all when neither field is named', async () => {
+    // The extra request is the price of comparing, so it is only paid when
+    // there is something to compare.
+    const stub = stubFetch({ [`PATCH /repos/${REPO_ID}`]: { json: {} } });
+    await call(await connect(), 'update_repository', {
+      repo_id: REPO_ID,
+      timeout: 30,
+    });
+    expect(stub.calls.every((c) => c.method === 'PATCH')).toBe(true);
+  });
+
+  it('asks before a secret is let into pull-request builds', async () => {
+    const stub = stubFetch({
+      'GET /secrets/TOKEN': { json: { events: ['push'], images: [] } },
+      'PATCH /secrets/TOKEN': { json: {} },
+    });
+    const result = await call(await connect(), 'update_secret', {
+      scope: 'global',
+      name: 'TOKEN',
+      events: ['push', 'pull_request'],
+    });
+    expect(textOf(result)).toContain('confirm_token');
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('asks before an image restriction is cleared', async () => {
+    const stub = stubFetch({
+      'GET /secrets/TOKEN': { json: { events: ['push'], images: ['alpine'] } },
+      'PATCH /secrets/TOKEN': { json: {} },
+    });
+    const result = await call(await connect(), 'update_secret', {
+      scope: 'global',
+      name: 'TOKEN',
+      images: [],
+    });
+    expect(textOf(result)).toContain('confirm_token');
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('narrows the events on the first call, because that direction is safe', async () => {
+    const stub = stubFetch({
+      'GET /secrets/TOKEN': {
+        json: { events: ['push', 'pull_request'], images: [] },
+      },
+      'PATCH /secrets/TOKEN': { json: {} },
+    });
+    const result = await call(await connect(), 'update_secret', {
+      scope: 'global',
+      name: 'TOKEN',
+      events: ['push'],
+    });
+    expect(result.isError).toBeFalsy();
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(true);
+  });
+
+  it('edits the note on the first call, and without reading the secret', async () => {
+    const stub = stubFetch({ 'PATCH /secrets/TOKEN': { json: {} } });
+    const result = await call(await connect(), 'update_secret', {
+      scope: 'global',
+      name: 'TOKEN',
+      note: 'owned by the deploy team',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(stub.calls.every((c) => c.method === 'PATCH')).toBe(true);
+  });
+});
+
+describe('rotating a registry password asks first', () => {
+  // The tool's own annotation states the rule — "the old password is not
+  // readable through the API and cannot be recovered" — and update_secret is
+  // guarded by that exact sentence, while delete_registry beside it is
+  // two-step for the same damage. This one was not.
+  it('does not replace the password before it is confirmed', async () => {
+    const stub = stubFetch({ 'PATCH /registries/docker.io': { json: {} } });
+    const result = await call(await connect(), 'update_registry', {
+      scope: 'global',
+      address: 'docker.io',
+      password: 'new',
+    });
+    expect(textOf(result)).toContain('confirm_token');
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('corrects a username on the first call, because nothing is destroyed', async () => {
+    const stub = stubFetch({ 'PATCH /registries/docker.io': { json: {} } });
+    const result = await call(await connect(), 'update_registry', {
+      scope: 'global',
+      address: 'docker.io',
+      username: 'bot',
+    });
+    expect(result.isError).toBeFalsy();
+    expect(stub.calls[0]?.body).toEqual({ username: 'bot' });
+  });
+});
+
+describe('a secret value never leaves this server', () => {
+  // Woodpecker's model.Secret.Copy() strips the value, so on a healthy instance
+  // these change nothing — which is why they exist. The comment on
+  // SENSITIVE_KEYS claimed `value` was "stripped where secrets are actually
+  // handled, in tools/secrets.ts", and nothing there stripped anything: the
+  // confidentiality rested entirely on the other side's Go model.
+  it('redacts a value an instance did return from get_secret', async () => {
+    stubFetch({
+      'GET /secrets/TOKEN': { json: { name: 'TOKEN', value: 'sh' } },
+    });
+    const result = await call(await connect(), 'get_secret', {
+      scope: 'global',
+      name: 'TOKEN',
+    });
+    expect(textOf(result)).not.toContain('sh');
+    expect(jsonOf(result).value).toBe(REDACTED);
+  });
+
+  it('redacts values in a secret list too', async () => {
+    stubFetch({
+      'GET /secrets': { json: [{ name: 'TOKEN', value: 'leaked-value' }] },
+    });
+    const result = await call(await connect(), 'list_secrets', {
+      scope: 'global',
+    });
+    expect(textOf(result)).not.toContain('leaked-value');
+  });
+
+  it('leaves a value-shaped field that is not a secret alone', async () => {
+    // A bare `value` is the natural name for any key/value pair, which is why
+    // it cannot go on the blanket list.
+    stubFetch({
+      [`GET /repos/${REPO_ID}/cron/4`]: {
+        json: { id: 4, name: 'nightly', value: 'not a credential' },
+      },
+    });
+    const result = await call(await connect(), 'get_cron', {
+      repo_id: REPO_ID,
+      cron_id: 4,
+    });
+    expect(textOf(result)).toContain('not a credential');
   });
 });

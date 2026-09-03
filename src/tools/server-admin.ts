@@ -1,10 +1,10 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
+import { plain } from '../output-schema.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 
 import { guarded } from '../guard.js';
-import { jsonResult, run, textResult } from '../result.js';
+import { READ_ONLY } from './annotations.js';
+import { jsonResult, run, sentenceResult } from '../result.js';
 import { confirmTokenParam } from '../schema.js';
 import type { ToolContext } from './context.js';
 
@@ -19,7 +19,7 @@ import type { ToolContext } from './context.js';
  */
 export function registerServerTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'get_server_info',
@@ -30,8 +30,9 @@ export function registerServerTools(
         'healthy. Works without a token, which makes it the call to use when ' +
         'nothing else does: if this answers, WOODPECKER_URL is right and the ' +
         'problem is WOODPECKER_TOKEN.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({}),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () =>
       run(async () => {
@@ -64,8 +65,9 @@ export function registerServerTools(
         'agent, plus the agent statistics. Admin only. Together with ' +
         'list_queued_pipelines this is the whole answer to "why is my build not ' +
         'starting".',
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({}),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () => run(async () => jsonResult(await api.get('/queue/info')))
   );
@@ -76,8 +78,9 @@ export function registerServerTools(
       title: 'Get the server log level',
       description:
         'Returns the current log level of the Woodpecker server. Admin only.',
-      inputSchema: {},
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({}),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async () => run(async () => jsonResult(await api.get('/log-level')))
   );
@@ -93,12 +96,23 @@ export function registerServerTools(
         'everything else queues up. Admin only, and instance-wide — this stops CI ' +
         'for everybody, and it stays paused until someone calls resume_queue. ' +
         'Two-step.',
-      inputSchema: { confirm_token: confirmTokenParam.optional() },
-      annotations: { idempotentHint: true },
+      inputSchema: z.object({ confirm_token: confirmTokenParam.optional() }),
+      annotations: {
+        // A state, not content. Nothing is lost — but nothing starts
+        // either, and nobody is told, which is why it is guarded.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      outputSchema: plain(),
     },
-    async ({ confirm_token }) =>
+    async ({ confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'pause_queue',
@@ -111,8 +125,9 @@ export function registerServerTools(
           },
           async () => {
             await api.post('/queue/pause');
-            return textResult(
-              'The queue is paused. Nothing new will be scheduled until resume_queue.'
+            return sentenceResult(
+              'The queue is paused. Nothing new will be scheduled until resume_queue.',
+              { queue_paused: true }
             );
           }
         )
@@ -126,13 +141,22 @@ export function registerServerTools(
       description:
         'Lets the server hand work to agents again. Admin only. Queued pipelines ' +
         'start at once, so expect a burst.',
-      inputSchema: {},
-      annotations: { idempotentHint: true },
+      inputSchema: z.object({}),
+      annotations: {
+        // Restores service.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
+      },
+      outputSchema: plain(),
     },
     async () =>
       run(async () => {
         await api.post('/queue/resume');
-        return textResult('The queue is running again.');
+        return sentenceResult('The queue is running again.', {
+          queue_paused: false,
+        });
       })
   );
 
@@ -144,7 +168,7 @@ export function registerServerTools(
         'Changes the log level of the running Woodpecker server, without a restart. ' +
         'Admin only. "debug" and "trace" are loud — set it back when you are done, ' +
         'and remember that trace logs request bodies.',
-      inputSchema: {
+      inputSchema: z.object({
         level: z
           .enum([
             'trace',
@@ -167,9 +191,18 @@ export function registerServerTools(
             'Required only for the levels that suppress records — fatal, panic ' +
               'and disabled.'
           ),
+      }),
+      annotations: {
+        // A setting, not content. Silencing it hides warnings and errors,
+        // which is why that direction is guarded — but nothing is lost.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: false,
       },
+      outputSchema: plain(),
     },
-    async ({ level, confirm_token }) =>
+    async ({ level, confirm_token }, mcp) =>
       run(async () => {
         const apply = async (): Promise<CallToolResult> =>
           jsonResult(await api.post('/log-level', { 'log-level': level }));
@@ -182,10 +215,13 @@ export function registerServerTools(
         if (!silencing.includes(level)) return apply();
 
         return guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'set_log_level',
-            targets: [level],
+            targets: [`level:${level}`],
             what: `set the server log level to ${level}`,
             consequence:
               'The server stops recording warnings and errors, so whatever ' +

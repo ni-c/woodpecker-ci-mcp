@@ -1,16 +1,13 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf, summarizeCron } from '../normalize.js';
+import { marked, plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   budgetedList,
   budgetedUntrustedResult,
   jsonResult,
   run,
-  textResult,
+  sentenceResult,
+  errorResult,
 } from '../result.js';
 import {
   branchParam,
@@ -20,6 +17,11 @@ import {
   perPageParam,
   repoIdParam,
 } from '../schema.js';
+
+import { query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
+import { guarded } from '../guard.js';
+import { listOf, summarizeCron } from '../normalize.js';
 import type { ToolContext } from './context.js';
 
 const nameParam = z
@@ -79,7 +81,7 @@ const timezoneParam = z
 
 export function registerCronTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_crons',
@@ -88,12 +90,13 @@ export function registerCronTools(
       description:
         'Lists the scheduled pipeline runs of a repository, with the next execution ' +
         'time of each.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ repo_id, page, per_page }) =>
       run(async () => {
@@ -112,8 +115,9 @@ export function registerCronTools(
     {
       title: 'Get a cron job',
       description: 'Returns one cron job, including the variables it passes.',
-      inputSchema: { repo_id: repoIdParam, cron_id: cronIdParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
@@ -131,7 +135,7 @@ export function registerCronTools(
         'Schedules a pipeline run. The pipeline runs with event "cron", so steps ' +
         'and secrets restricted to other events do not apply to it — a cron job ' +
         'whose steps all have "when: event: push" runs and does nothing.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         name: nameParam,
         schedule: scheduleParam,
@@ -141,7 +145,15 @@ export function registerCronTools(
             'Branch to run. Defaults to the repository default branch.'
           ),
         timezone: timezoneParam.optional(),
+      }),
+      annotations: {
+        // Additive. Two calls leave two cron jobs.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, name, schedule, branch, timezone }) =>
       run(async () => {
@@ -160,7 +172,7 @@ export function registerCronTools(
       description:
         'Changes a cron job. Only the fields you pass are touched — including ' +
         '"enabled", which is how a schedule is paused without losing it.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         cron_id: cronIdParam,
         name: nameParam.optional(),
@@ -171,7 +183,15 @@ export function registerCronTools(
           .boolean()
           .optional()
           .describe('Set false to stop the schedule without deleting it.'),
+      }),
+      annotations: {
+        // Replaces the schedule and branch somebody set.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ repo_id, cron_id, ...fields }) =>
       run(async () => {
@@ -180,7 +200,7 @@ export function registerCronTools(
           if (value !== undefined) body[key] = value;
         }
         if (Object.keys(body).length === 0) {
-          return textResult(
+          return errorResult(
             'Nothing to update — pass name, schedule, branch, timezone or enabled.'
           );
         }
@@ -198,9 +218,18 @@ export function registerCronTools(
         "Starts the cron job's pipeline immediately, without waiting for its " +
         'schedule. The schedule itself is unchanged, and the run counts as a cron ' +
         'event — which is the point: this is how you test that a nightly job works ' +
-        'before waiting a night for it.',
-      inputSchema: { repo_id: repoIdParam, cron_id: cronIdParam },
-      annotations: { idempotentHint: false },
+        'before waiting a night for it. Every call is another run; a retry after a ' +
+        'timeout starts a second one.',
+      inputSchema: z.object({ repo_id: repoIdParam, cron_id: cronIdParam }),
+      annotations: {
+        // Runs a build now, outside the schedule. Same reasoning as
+        // trigger_pipeline: what it does is written in the repository.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      outputSchema: marked(),
     },
     async ({ repo_id, cron_id }) =>
       run(async () =>
@@ -218,20 +247,32 @@ export function registerCronTools(
       description:
         'Removes a scheduled run. If you only want it to stop for now, ' +
         'update_cron with enabled=false keeps the definition. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         repo_id: repoIdParam,
         cron_id: cronIdParam,
         confirm_token: confirmTokenParam.optional(),
+      }),
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
-      annotations: { destructiveHint: true, idempotentHint: false },
+      outputSchema: plain(),
     },
-    async ({ repo_id, cron_id, confirm_token }) =>
+    async ({ repo_id, cron_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_cron',
-            targets: [String(repo_id), String(cron_id)],
+            targets: [`repo:${repo_id}`, `cron:${cron_id}`],
             what: `delete cron job ${cron_id} of repository ${repo_id}`,
             consequence:
               'The schedule is gone. Nothing will notice that the job stopped ' +
@@ -240,7 +281,9 @@ export function registerCronTools(
           },
           async () => {
             await api.delete(`/repos/${repo_id}/cron/${cron_id}`);
-            return textResult(`Cron job ${cron_id} was deleted.`);
+            return sentenceResult(`Cron job ${cron_id} was deleted.`, {
+              deleted_cron_id: cron_id,
+            });
           }
         )
       )

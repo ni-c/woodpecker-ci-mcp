@@ -67,6 +67,17 @@ Prefer an internal CA your machine trusts. An MCP client typically runs on a
 laptop that also talks to the public internet, and a process-wide hole is a hole
 in all of it.
 
+## Turning the approval dialog off
+
+The twenty-three irreversible operations ask a person through MCP elicitation before
+they act. `ELICITATION=false` takes them to the two-call token instead. It does not
+remove the guard; there is no setting in which a guarded call goes unannounced.
+
+The variable deliberately carries no `WOODPECKER_` prefix, which means it reaches
+every MCP server in the same environment, and — unlike `WOODPECKER_READ_ONLY` — a
+value it does not recognise **stops the server** rather than failing off. See
+[Asking a person](/guide/approval).
+
 ## Choosing the tools that load
 
 `WOODPECKER_ALLOW_TOOLS` decides what is registered; `WOODPECKER_DENY_TOOLS` is

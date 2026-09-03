@@ -7,6 +7,7 @@
 [![license](https://img.shields.io/npm/l/@ni-c/woodpecker-ci-mcp)](LICENSE)
 [![container](https://img.shields.io/badge/ghcr.io-ni--c%2Fwoodpecker--ci--mcp-blue)](https://github.com/ni-c/woodpecker-ci-mcp/pkgs/container/woodpecker-ci-mcp)
 [![docs](https://img.shields.io/badge/docs-woodpecker--ci--mcp.ni--c.de-informational)](https://woodpecker-ci-mcp.ni-c.de)
+[![HTTP • via mcp-hub](https://img.shields.io/badge/HTTP-via%20mcp--hub-6f42c1)](https://mcp-hub.ni-c.de)
 [![sponsor](https://img.shields.io/badge/sponsor-ni--c-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ni-c)
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for
@@ -16,7 +17,7 @@ engine — it runs your pipelines, and this reads and drives them.
 Lets MCP clients like Claude Code, Claude Desktop or Codex see which pipelines
 failed, read the build log of the step that broke, and act on it — restart it,
 cancel a runaway, approve a blocked one, rotate a secret, fix a cron — with the
-irreversible operations behind a confirmation token and the write tools
+irreversible operations put to a person first and the write tools
 switchable off entirely.
 
 71 tools is the ceiling, not the floor: `WOODPECKER_ALLOW_TOOLS=essential`
@@ -75,6 +76,7 @@ in the API.
 | `WOODPECKER_ALLOW_TOOLS`  | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |
 | `WOODPECKER_DENY_TOOLS`   | no       | Same syntax; removed from whatever `WOODPECKER_ALLOW_TOOLS` left                   |
 | `WOODPECKER_INSECURE_TLS` | no       | `true` accepts self-signed certificates (scoped to this connection)                |
+| `ELICITATION`             | no       | `false` replaces the approval dialog with the two-call token. **Not prefixed**     |
 
 `WOODPECKER_URL` is the server root, not the API root:
 `https://woodpecker.example.com`, not `https://woodpecker.example.com/api`. Both
@@ -175,10 +177,63 @@ If your Woodpecker is only resolvable through your host's split DNS, add
 configuration, and the public answer for an internal name is usually an address
 that does not respond.
 
+### Through mcp-hub
+
+A client that cannot spawn a local process — ChatGPT connectors, Claude on the web,
+Cursor, LibreChat — reaches woodpecker-ci-mcp through [mcp-hub](https://mcp-hub.ni-c.de): one
+container serves many stdio MCP servers over Streamable HTTP, with an OAuth 2.1 login
+behind a single password and long-lived tokens for the clients that cannot do OAuth. Its
+`/hub` endpoint puts every server behind six meta-tools, so one connector reaches all of
+them without N×tool schemas in the model's context, and it speaks both protocol revisions
+— a question this server asks travels through it to the person at the far end.
+
+Its `/config/mcp.json` uses Claude Code's format, so the entry is the one you already
+have:
+
+```json
+{
+  "mcpServers": {
+    "woodpecker-ci": {
+      "command": "npx",
+      "args": ["-y", "@ni-c/woodpecker-ci-mcp"],
+      "env": {
+        "WOODPECKER_URL": "https://woodpecker.example.com",
+        "WOODPECKER_TOKEN": "…"
+      }
+    }
+  }
+}
+```
+
+`allowTools` and `denyTools` there are the hub's **own** per-server filter, which is not
+the same thing as `*_ALLOW_TOOLS` in `env` — the difference, and the mistake it invites,
+are in the [client guide](https://woodpecker-ci-mcp.ni-c.de/guide/clients#through-mcp-hub).
+
 ## Tools
 
 Read tools are always registered. 🛡 marks the ones that need an instance
-administrator; 👤 marks the ones that ask for a confirmation token before acting.
+administrator; 👤 marks the ones that **ask a person** before acting, through MCP
+elicitation, falling back to a two-call `confirm_token` where the client cannot
+show a dialog.
+
+Every tool declares an `outputSchema` and answers with `structuredContent`
+alongside the text block, so a client can use the result without parsing prose.
+Seventeen tools that answered with a sentence — _"Pipeline 12 was cancelled."_ —
+now answer with the fields as well, and the sentence stays where a reader wants
+it. `get_step_logs` keeps its rendered header-plus-log in the text and states
+the exit code, the line count and the output as fields.
+
+The tools that report pushed content carry `untrusted: true` and
+`source: "woodpecker"` as fields; branch names, commit messages, pipeline titles
+and above all build logs — the raw stdout of arbitrary containers — are written
+by whoever can push. The list follows the call sites: a tool is marked exactly
+when it already routed its answer through the untrusted wrapper.
+
+Woodpecker's objects are described as open objects with the top-level keys this
+server builds. The upstream Go models change what they serialize between
+releases, and the SDK validates each result against its schema before it goes
+out — a strict shape would turn a field a release adds into a tool that fails
+outright.
 The [tool reference](https://woodpecker-ci-mcp.ni-c.de/reference/tools) has the
 parameters.
 
@@ -196,7 +251,7 @@ parameters.
 | `update_repository` 👤       | Config file, timeout, visibility, approval mode; 👤 to grant trust |
 | `repair_repository` 👤       | Re-installs the webhook; 👤 only for the whole-instance variant    |
 | `move_repository` 👤         | Follows a repository that moved in the forge                       |
-| `chown_repository`           | Takes ownership, so the token Woodpecker uses is yours             |
+| `chown_repository` 👤        | Takes ownership, so the token Woodpecker uses is yours             |
 | `delete_repository` 👤       | Removes it from Woodpecker with all its history                    |
 
 ### Pipelines and logs
@@ -254,7 +309,7 @@ parameters.
 | `delete_organization` 🛡👤      | Removes it with its org-level secrets, registries and agents |
 | `list_users` 🛡                 | Accounts that have ever logged in                            |
 | `get_user` 🛡                   | One account — `forge_id` is required                         |
-| `create_user` 🛡                | Pre-creates a record, e.g. to grant admin before first login |
+| `create_user` 🛡👤              | Pre-creates a record; 👤 only when it grants admin           |
 | `update_user` 🛡👤              | Changes email; 👤 to grant admin                             |
 | `delete_user` 🛡👤              | Removes an account — transfer its repositories first         |
 | `list_agents` 🛡                | Build agents, with tokens redacted                           |
@@ -292,15 +347,24 @@ parameters.
 
 ## Safety
 
-- **Twenty operations are two-step.** Every `delete_*`, plus `move_repository`,
-  the whole-instance `repair_repository`, `update_forge`, `pause_queue` and
-  `approve_pipeline` — and four more only in the direction that escalates:
-  `update_user` granting `admin`, `update_repository` granting a `trusted_*`
-  flag, `update_secret` overwriting a value, and `set_log_level` silencing the
-  server. The first call returns a short-lived confirmation token bound to those
-  exact arguments; only a second call carrying it acts. A token for one
-  repository is not a token for another, and a token for one tool is not a token
-  for another.
+- **Twenty-three operations ask a person.** Every `delete_*`, plus
+  `move_repository`, `chown_repository`, the whole-instance `repair_repository`,
+  `update_forge`, `pause_queue` and `approve_pipeline` — and six more only in the
+  direction that escalates: `update_user` granting `admin`, `create_user` creating
+  one, `update_repository` granting a `trusted_*` flag or lowering the fork gate
+  (`require_approval` down, `visibility` to `public`), `update_secret` overwriting
+  a value or widening who may read it, `update_registry` replacing a password, and
+  `set_log_level` silencing the server.
+
+  Where the client supports MCP elicitation that is a real dialog the model cannot
+  answer on its behalf. Where it does not, the first call returns a short-lived
+  token bound to those exact arguments and only a second call carrying it acts —
+  which proves the call was made twice with the same arguments and nothing more,
+  and the text says so. Either way an approval for one repository is not one for
+  another, and one for a tool is not one for another. `ELICITATION=false` takes the
+  fallback deliberately; it never removes the guard. See
+  [Asking a person](https://woodpecker-ci-mcp.ni-c.de/guide/approval).
+
 - **Agent tokens are redacted on read** — see above. `create_agent` is the
   exception, by necessity.
 - **Secret values and registry passwords are never returned**, and not because
@@ -318,6 +382,11 @@ parameters.
 - The token is deleted from `process.env` once it has been read, is never sent to
   a redirect target, and is never echoed into an error message.
 
+## Documentation
+
+The full guide, tool reference and security notes live at
+**[woodpecker-ci-mcp.ni-c.de](https://woodpecker-ci-mcp.ni-c.de)** (source in [`docs/`](docs/)).
+
 ## Development
 
 ```sh
@@ -334,3 +403,14 @@ npm run lint && npm run build && npm run test:coverage
 The release workflow publishes to npm (Trusted Publishing, with provenance),
 creates the GitHub release from the CHANGELOG section and updates the MCP
 Registry entry.
+
+## Contributing
+
+Issues, discussions and pull requests are welcome — see
+[CONTRIBUTING.md](CONTRIBUTING.md). For vulnerabilities please use
+[private reporting](https://github.com/ni-c/woodpecker-ci-mcp/security/advisories/new)
+rather than a public issue; the policy is in [SECURITY.md](SECURITY.md).
+
+## License
+
+[MIT](LICENSE) © Willi Thiel

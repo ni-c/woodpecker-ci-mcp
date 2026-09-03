@@ -19,6 +19,58 @@ afterEach(() => {
   vi.restoreAllMocks();
 });
 
+describe('ELICITATION', () => {
+  it('defaults to on, and to on for an empty value', () => {
+    // The only variable of this family that defaults to *on*. An unset switch
+    // has to mean "ask", or a deployment that never heard of it would quietly
+    // stop asking.
+    expect(loadConfig(env()).elicitation).toBe(true);
+    expect(loadConfig(env({ ELICITATION: '' })).elicitation).toBe(true);
+  });
+
+  it('is switched off by "false", in any casing or padding', () => {
+    for (const raw of ['false', 'FALSE', ' False ']) {
+      expect(loadConfig(env({ ELICITATION: raw })).elicitation, raw).toBe(
+        false
+      );
+    }
+  });
+
+  it('refuses to start on anything else, naming both valid values', () => {
+    // Deliberately fatal rather than falling back to the default: a typo would
+    // leave the dialog running while the operator believes it is off, and
+    // nothing else would ever tell them.
+    for (const raw of ['1', 'off', 'no']) {
+      const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+      const exit = vi.spyOn(process, 'exit').mockImplementation((() => {
+        throw new Error('exit');
+      }) as never);
+      expect(() => loadConfig(env({ ELICITATION: raw }))).toThrow('exit');
+      expect(exit).toHaveBeenCalledWith(1);
+      const message = String(error.mock.calls[0]?.[0] ?? '');
+      expect(message, raw).toContain('ELICITATION');
+      expect(message, raw).toContain('"true"');
+      expect(message, raw).toContain('"false"');
+      vi.restoreAllMocks();
+    }
+  });
+
+  it('has already wiped the credential by the time it can exit', () => {
+    // parseElicitation sits *after* the delete on purpose. An exit above it
+    // would leave the credential in the environment for whatever a crash
+    // reporter or an inspector does next — which is exactly what that delete
+    // exists to prevent, and its comment says so.
+    vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    const e = env({ ELICITATION: 'nonsense' });
+    expect(() => loadConfig(e)).toThrow('exit');
+    expect(e.WOODPECKER_TOKEN).toBeUndefined();
+    vi.restoreAllMocks();
+  });
+});
+
 describe('loadConfig', () => {
   it('reads a complete configuration', () => {
     const config = loadConfig(env());
@@ -55,9 +107,35 @@ describe('loadConfig', () => {
     expect(config.insecureTls).toBe(true);
   });
 
-  it('treats anything other than "true" as false', () => {
-    const config = loadConfig(env({ WOODPECKER_READ_ONLY: '1' }));
-    expect(config.readOnly).toBe(false);
+  // A protection and a permission are parsed differently on purpose, so both
+  // halves are asserted here: `WOODPECKER_READ_ONLY=1` — what a Compose file or
+  // a systemd unit is most likely to say — used to leave every write tool
+  // registered while the operator believed the server could not write.
+  it.each(['1', 'yes', 'TRUE', ' true '])(
+    'reads %o as read-only, because a protection must not fail silently open',
+    (value) => {
+      expect(loadConfig(env({ WOODPECKER_READ_ONLY: value })).readOnly).toBe(
+        true
+      );
+    }
+  );
+
+  it('still refuses a value that grants nothing', () => {
+    expect(loadConfig(env({ WOODPECKER_READ_ONLY: 'no' })).readOnly).toBe(
+      false
+    );
+    expect(loadConfig(env({ WOODPECKER_READ_ONLY: '' })).readOnly).toBe(false);
+  });
+
+  it('keeps the TLS switch strict, because that one grants a permission', () => {
+    // Mirror image of the above. Turning certificate verification off should
+    // take the exact word that turns it off, never a near miss.
+    expect(loadConfig(env({ WOODPECKER_INSECURE_TLS: '1' })).insecureTls).toBe(
+      false
+    );
+    expect(
+      loadConfig(env({ WOODPECKER_INSECURE_TLS: 'yes' })).insecureTls
+    ).toBe(false);
   });
 
   it('warns about plain http to a remote host', () => {

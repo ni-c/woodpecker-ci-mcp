@@ -107,6 +107,7 @@ const CASES: Record<string, Case> = {
     args: { repo_id: REPO_ID },
     expect: `POST /repos/${REPO_ID}/chown`,
     reply: { json: repo },
+    guarded: true,
   },
   delete_repository: {
     args: { repo_id: REPO_ID },
@@ -249,9 +250,11 @@ const CASES: Record<string, Case> = {
     reply: { json: registry },
   },
   update_registry: {
+    // Passing `password` is the rotating variant, which is the guarded one.
     args: { scope: 'global', address: 'docker.io', password: 'p2' },
     expect: 'PATCH /registries/docker.io',
     reply: { json: registry },
+    guarded: true,
   },
   delete_registry: {
     args: { scope: 'global', address: 'docker.io' },

@@ -1,16 +1,13 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-
-import { query } from '../api.js';
-import { guarded } from '../guard.js';
-import { listOf, redactAgent } from '../normalize.js';
+import { plain } from '../output-schema.js';
+import type { McpServer } from '@modelcontextprotocol/server';
 import {
   budgetedList,
   jsonResult,
   rawJsonResult,
   run,
-  textResult,
+  sentenceResult,
+  errorResult,
 } from '../result.js';
 import {
   agentIdParam,
@@ -19,6 +16,11 @@ import {
   pageParam,
   perPageParam,
 } from '../schema.js';
+
+import { query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
+import { guarded } from '../guard.js';
+import { listOf, redactAgent } from '../normalize.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -56,7 +58,7 @@ const customLabelsParam = z
 
 export function registerAgentTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_agents',
@@ -67,7 +69,7 @@ export function registerAgentTools(
         'contact — the call that answers "why is nothing being built". Without ' +
         'org_id this is the instance-wide list and needs an administrator. Agent ' +
         'tokens are redacted.',
-      inputSchema: {
+      inputSchema: z.object({
         org_id: orgIdParam
           .optional()
           .describe(
@@ -75,8 +77,9 @@ export function registerAgentTools(
           ),
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ org_id, page, per_page }) =>
       run(async () => {
@@ -106,8 +109,9 @@ export function registerAgentTools(
       description:
         'Returns one agent. Admin only. Its token is redacted; an agent that lost ' +
         'its token needs a new one, which means delete_agent and create_agent.',
-      inputSchema: { agent_id: agentIdParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ agent_id: agentIdParam }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ agent_id }) =>
       run(async () =>
@@ -126,8 +130,9 @@ export function registerAgentTools(
       description:
         'The work an agent is currently running. Admin only. This is how you find ' +
         'out what is occupying a busy agent, and which pipeline to cancel.',
-      inputSchema: { agent_id: agentIdParam },
-      annotations: { readOnlyHint: true },
+      inputSchema: z.object({ agent_id: agentIdParam }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ agent_id }) =>
       run(async () =>
@@ -150,7 +155,7 @@ export function registerAgentTools(
         'pipeline workloads and read every secret those pipelines use. It is part ' +
         'of this answer because it is the only way to get it — put it straight into ' +
         "the agent's configuration and do not paste it anywhere else.",
-      inputSchema: {
+      inputSchema: z.object({
         name: agentNameParam,
         org_id: orgIdParam
           .optional()
@@ -160,7 +165,15 @@ export function registerAgentTools(
           ),
         no_schedule: noScheduleParam.optional(),
         custom_labels: customLabelsParam.optional(),
+      }),
+      annotations: {
+        // Additive. Each call mints a new agent with a new token.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ name, org_id, no_schedule, custom_labels }) =>
       run(async () => {
@@ -189,7 +202,7 @@ export function registerAgentTools(
       description:
         'Changes an agent. Admin only. no_schedule=true is the drain switch: the ' +
         'agent finishes its current work and takes nothing new.',
-      inputSchema: {
+      inputSchema: z.object({
         agent_id: agentIdParam,
         org_id: orgIdParam
           .optional()
@@ -201,7 +214,15 @@ export function registerAgentTools(
         name: agentNameParam.optional(),
         no_schedule: noScheduleParam.optional(),
         custom_labels: customLabelsParam.optional(),
+      }),
+      annotations: {
+        // Replaces the agent record with the fields given.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
+      outputSchema: plain(),
     },
     async ({ agent_id, org_id, name, no_schedule, custom_labels }) =>
       run(async () => {
@@ -210,7 +231,7 @@ export function registerAgentTools(
         if (no_schedule !== undefined) body.no_schedule = no_schedule;
         if (custom_labels !== undefined) body.custom_labels = custom_labels;
         if (Object.keys(body).length === 0) {
-          return textResult(
+          return errorResult(
             'Nothing to update — pass name, no_schedule or custom_labels.'
           );
         }
@@ -232,7 +253,7 @@ export function registerAgentTools(
         'Removes an agent and invalidates its token. Anything it was running is ' +
         'lost and has to be restarted. Drain it first with update_agent ' +
         'no_schedule=true. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         agent_id: agentIdParam,
         org_id: orgIdParam
           .optional()
@@ -241,16 +262,27 @@ export function registerAgentTools(
               'organization admin rather than an instance admin.'
           ),
         confirm_token: confirmTokenParam.optional(),
+      }),
+      annotations: {
+        // Idempotent by the specification's wording — the second call fails,
+        // but the world is the same either way.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
-      annotations: { destructiveHint: true, idempotentHint: false },
+      outputSchema: plain(),
     },
-    async ({ agent_id, org_id, confirm_token }) =>
+    async ({ agent_id, org_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_agent',
-            targets: [String(agent_id), String(org_id ?? '')],
+            targets: [`agent:${agent_id}`, `org:${org_id ?? ''}`],
             what: `delete agent ${agent_id}`,
             consequence:
               'Its token stops working, the pipelines it is running are lost, and ' +
@@ -263,8 +295,9 @@ export function registerAgentTools(
                 ? `/agents/${agent_id}`
                 : `/orgs/${org_id}/agents/${agent_id}`
             );
-            return textResult(
-              `Agent ${agent_id} was deleted and its token invalidated.`
+            return sentenceResult(
+              `Agent ${agent_id} was deleted and its token invalidated.`,
+              { deleted_agent_id: agent_id, token_invalidated: true }
             );
           }
         )

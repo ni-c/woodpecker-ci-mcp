@@ -1,19 +1,25 @@
 import { z } from 'zod';
-
-import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
-import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
-
-import { pathSegment, query } from '../api.js';
-import { identifier } from '../confirm.js';
-import { guarded } from '../guard.js';
-import { listOf, summarizeUser } from '../normalize.js';
-import { budgetedList, jsonResult, run, textResult } from '../result.js';
+import { plain } from '../output-schema.js';
+import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
   loginParam,
   pageParam,
   perPageParam,
 } from '../schema.js';
+
+import { pathSegment, query } from '../api.js';
+import { READ_ONLY } from './annotations.js';
+import { identifier } from '../resource-key.js';
+import { guarded } from '../guard.js';
+import { listOf, summarizeUser } from '../normalize.js';
+import {
+  errorResult,
+  budgetedList,
+  jsonResult,
+  run,
+  sentenceResult,
+} from '../result.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -35,7 +41,7 @@ const forgeIdQueryParam = z
 
 export function registerUserTools(
   server: McpServer,
-  { api, confirmations, readOnly }: ToolContext
+  { api, confirmations, approval, readOnly }: ToolContext
 ): void {
   server.registerTool(
     'list_users',
@@ -45,11 +51,12 @@ export function registerUserTools(
         'Lists the accounts known to this Woodpecker instance. Admin only. ' +
         'Woodpecker creates an account the first time someone logs in, so this is ' +
         'everyone who has ever used it, not a managed roster.',
-      inputSchema: {
+      inputSchema: z.object({
         page: pageParam.optional(),
         per_page: perPageParam.optional(),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ page, per_page }) =>
       run(async () => {
@@ -67,7 +74,7 @@ export function registerUserTools(
       description:
         'Returns one account by its login. Admin only. forge_id is required — see ' +
         'list_users for the value.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam,
         forge_id: forgeIdQueryParam,
         forge_remote_id: z
@@ -77,8 +84,9 @@ export function registerUserTools(
           .max(200)
           .optional()
           .describe('Disambiguates further if the forge reuses logins.'),
-      },
-      annotations: { readOnlyHint: true },
+      }),
+      annotations: READ_ONLY,
+      outputSchema: plain(),
     },
     async ({ login, forge_id, forge_remote_id }) =>
       run(async () =>
@@ -102,8 +110,9 @@ export function registerUserTools(
         'Registers an account ahead of its first login. Admin only. This does not ' +
         'create anything in the forge and grants no access there — the person still ' +
         'signs in through the forge; this only pre-creates the Woodpecker record, ' +
-        'which is how you make someone an admin before they first log in.',
-      inputSchema: {
+        'which is how you make someone an admin before they first log in. ' +
+        'Passing admin=true asks a person first.',
+      inputSchema: z.object({
         login: loginParam.describe(
           'The login exactly as the forge spells it. A mismatch creates a second, ' +
             'unused account instead of the one you meant.'
@@ -118,19 +127,61 @@ export function registerUserTools(
         admin: z
           .boolean()
           .optional()
-          .describe('Make the account an instance administrator.'),
-      },
-    },
-    async ({ login, email, admin }) =>
-      run(async () => {
-        const body: Record<string, unknown> = { login };
-        if (email !== undefined) body.email = email;
-        if (admin !== undefined) body.admin = admin;
-        return jsonResult({
-          user: summarizeUser(
-            (await api.post('/users', body)) as Record<string, unknown>
+          .describe(
+            'Make the account an instance administrator. Grants access to every ' +
+              'repository, secret and agent on the server, so passing true asks ' +
+              'a person first.'
           ),
-        });
+        confirm_token: confirmTokenParam.optional(),
+      }),
+      annotations: {
+        // Additive. It can grant instance admin in the same call, which is a
+        // privilege change rather than a destruction — the guard covers that.
+        readOnlyHint: false,
+        destructiveHint: false,
+        idempotentHint: false,
+        openWorldHint: false,
+      },
+      outputSchema: plain(),
+    },
+    async ({ login, email, admin, confirm_token }, mcp) =>
+      run(async () => {
+        const create = async (): Promise<CallToolResult> => {
+          const body: Record<string, unknown> = { login };
+          if (email !== undefined) body.email = email;
+          if (admin !== undefined) body.admin = admin;
+          return jsonResult({
+            user: summarizeUser(
+              (await api.post('/users', body)) as Record<string, unknown>
+            ),
+          });
+        };
+
+        // Guarded on the same field, and only that field, as update_user right
+        // below. Until this call, `update_user(admin: true)` asked and
+        // `create_user(admin: true)` did not — the same privilege by the same
+        // flag, with a dialog in front of one of them. The description even
+        // advertised the gap: "which is how you make someone an admin before
+        // they first log in."
+        if (admin === true) {
+          return guarded(
+            server,
+            mcp,
+            approval,
+            confirmations,
+            {
+              tool: 'create_user',
+              targets: [`login:${login}`, 'admin'],
+              what: `create the account "${identifier(login, 'login')}" as an instance administrator`,
+              consequence:
+                'An instance administrator reads and writes every repository, ' +
+                'secret and agent on this server, and can grant the same to others.',
+              confirmToken: confirm_token,
+            },
+            create
+          );
+        }
+        return create();
       })
   );
 
@@ -142,7 +193,7 @@ export function registerUserTools(
         'Changes an account. Admin only. The one that matters is "admin": granting ' +
         'it gives full control of the instance, including every secret of every ' +
         'repository. Fields you do not pass are preserved.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam,
         forge_id: forgeIdQueryParam,
         email: z.string().trim().email().max(500).optional(),
@@ -154,12 +205,20 @@ export function registerUserTools(
               'agent on the server. Granting it needs a confirm_token.'
           ),
         confirm_token: confirmTokenParam.optional(),
+      }),
+      annotations: {
+        // Replaces the account record, and can grant instance admin.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
+      outputSchema: plain(),
     },
-    async ({ login, forge_id, email, admin, confirm_token }) =>
+    async ({ login, forge_id, email, admin, confirm_token }, mcp) =>
       run(async () => {
         if (email === undefined && admin === undefined) {
-          return textResult('Nothing to update — pass email or admin.');
+          return errorResult('Nothing to update — pass email or admin.');
         }
 
         // Only granting admin is guarded. Making every email correction
@@ -168,10 +227,13 @@ export function registerUserTools(
         // hands over the whole instance, so this is the one that stops.
         if (admin === true) {
           return guarded(
+            server,
+            mcp,
+            approval,
             confirmations,
             {
               tool: 'update_user',
-              targets: [login, String(forge_id ?? ''), 'admin'],
+              targets: [`login:${login}`, `forge:${forge_id ?? ''}`, 'admin'],
               what: `make the account "${identifier(login, 'login')}" an instance administrator`,
               consequence:
                 'An instance administrator reads and writes every repository, ' +
@@ -236,20 +298,32 @@ export function registerUserTools(
         'owned keep running on a token that no longer exists, which shows up later ' +
         'as pipelines that stop starting — chown_repository moves ownership to ' +
         'someone else, and doing that first is the point. Two-step.',
-      inputSchema: {
+      inputSchema: z.object({
         login: loginParam,
         forge_id: forgeIdQueryParam,
         confirm_token: confirmTokenParam.optional(),
+      }),
+      annotations: {
+        // Idempotent by the specification's wording — "no additional effect
+        // on its environment". The second call fails, but the world is the
+        // same either way, which is what lets a caller retry after a timeout.
+        readOnlyHint: false,
+        destructiveHint: true,
+        idempotentHint: true,
+        openWorldHint: false,
       },
-      annotations: { destructiveHint: true, idempotentHint: false },
+      outputSchema: plain(),
     },
-    async ({ login, forge_id, confirm_token }) =>
+    async ({ login, forge_id, confirm_token }, mcp) =>
       run(async () =>
         guarded(
+          server,
+          mcp,
+          approval,
           confirmations,
           {
             tool: 'delete_user',
-            targets: [login, String(forge_id)],
+            targets: [`login:${login}`, `forge:${forge_id}`],
             what: `delete the Woodpecker account "${identifier(login, 'login')}"`,
             consequence:
               'Repositories this account owns keep pointing at its forge token, ' +
@@ -261,7 +335,9 @@ export function registerUserTools(
             await api.delete(
               `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
             );
-            return textResult(`Account "${login}" was deleted.`);
+            return sentenceResult(`Account "${login}" was deleted.`, {
+              deleted_login: login,
+            });
           }
         )
       )
