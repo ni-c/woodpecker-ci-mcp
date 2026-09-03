@@ -8,14 +8,16 @@ import { assertLoopback, waitForHttp } from 'mcp-integration-harness';
  * OAuth flow against the forge, which is a browser journey, so this does what
  * a browser would — six steps, each with something worth knowing:
  *
- *  1. Sign in to Gitea. Its login form carries a `_csrf` field.
+ *  1. Sign in to Gitea. Two form fields, and nothing else: 1.26 dropped the
+ *     CSRF token this step used to carry.
  *  2. Ask Woodpecker for `/authorize`. It answers a redirect to the forge.
  *  3. **Rewrite the host in that redirect.** Woodpecker knows the forge as
  *     `gitea:3000`, which is how it reaches it from inside the compose
  *     network; nothing outside can resolve that. A browser on the docker host
  *     would have the same problem — the forge simply has two addresses — so
  *     the script translates.
- *  4. Grant consent. Another form, another `_csrf`, plus `granted=true`.
+ *  4. Grant consent. Another form: the three fields Gitea checks against the
+ *     session, plus `granted=true`.
  *  5. Follow the code back to Woodpecker, which sets a session cookie.
  *  6. Exchange the session for a personal access token — and this needs a
  *     **CSRF header** whose value is not in any cookie. Woodpecker injects it
@@ -93,6 +95,13 @@ async function postForm(
     headers: {
       'content-type': 'application/x-www-form-urlencoded',
       cookie: jar.header(originOf(url)),
+      // What a browser sends when it submits one of these forms: the page and
+      // the target are the same origin. Since 1.26 Gitea guards its web POSTs
+      // with Go's net/http CrossOriginProtection, which reads this header
+      // first and only falls back to comparing `Origin` against `Host` when it
+      // is absent — and an `Origin` the runtime adds on its own would be a 403
+      // nobody wrote. `/login/oauth/grant` is behind that guard.
+      'sec-fetch-site': 'same-origin',
     },
     body: new URLSearchParams(form),
     redirect: 'manual',
@@ -102,7 +111,8 @@ async function postForm(
   return response;
 }
 
-function csrf(html: string, field = '_csrf'): string {
+/** Reads one hidden input out of a rendered form. */
+function hiddenField(html: string, field: string): string {
   const match = new RegExp(`name="${field}"[^>]*value="([^"]+)"`).exec(html);
   if (match?.[1] === undefined) {
     throw new Error(
@@ -124,10 +134,14 @@ export async function bootstrap(
   });
   await waitForHttp(url, { timeoutSeconds: 300, ready: (r) => r.ok });
 
-  // 1. Sign in to the forge.
-  const loginPage = await (await get(`${GITEA}/user/login`)).text();
+  // 1. Sign in to the forge. Nothing is read out of the page, but it is still
+  //    fetched: it is what puts Gitea's session cookie in the jar, and the
+  //    POST below is answered on that session.
+  await get(`${GITEA}/user/login`);
   const signedIn = await postForm(`${GITEA}/user/login`, {
-    _csrf: csrf(loginPage),
+    // No _csrf: Gitea dropped the token in 1.26 in favour of net/http
+    // CrossOriginProtection, and this route is exempt from that check anyway
+    // (it is registered in the reqSignOut group, which the guard skips).
     user_name: USERNAME,
     password: PASSWORD,
   });
@@ -161,13 +175,15 @@ export async function bootstrap(
   let callback = authorize.headers.get('location');
   if (callback === null) {
     const consent = await authorize.text();
+    // These three are echoed back rather than composed: Gitea compares each
+    // against what the `/authorize` above put in the session and answers 400
+    // on any difference.
     const granted = await postForm(`${GITEA}/login/oauth/grant`, {
-      _csrf: csrf(consent),
-      client_id: csrf(consent, 'client_id'),
-      state: csrf(consent, 'state'),
+      client_id: hiddenField(consent, 'client_id'),
+      state: hiddenField(consent, 'state'),
       scope: '',
       nonce: '',
-      redirect_uri: csrf(consent, 'redirect_uri'),
+      redirect_uri: hiddenField(consent, 'redirect_uri'),
       granted: 'true',
     });
     callback = granted.headers.get('location');

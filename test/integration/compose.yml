@@ -16,12 +16,12 @@
 # afterwards. Bound to 127.0.0.1 only.
 services:
   gitea:
-    # Held at 1.24 on purpose, and not because it is merely untested: from 1.27
-    # the sign-in form no longer carries a hidden `_csrf` field, and there is no
-    # `_csrf` cookie to read it from either. `bootstrap()` scrapes that token to
-    # sign in and again to grant OAuth consent, so a newer forge makes the
-    # sandbox fail to come up at all rather than fail a test.
-    image: ${GITEA_IMAGE:-gitea/gitea:1.24}
+    # 1.26 dropped the CSRF token entirely — no hidden field, no cookie, no
+    # header, no meta tag — in favour of Go's net/http CrossOriginProtection,
+    # which looks at `Sec-Fetch-Site` and `Origin` instead. `bootstrap()` used
+    # to scrape that token out of two forms, so anything below 1.26 needs the
+    # older bootstrap and will fail here on a form field it cannot find.
+    image: ${GITEA_IMAGE:-gitea/gitea:1.27}
     environment:
       # `gitea:3000` because this is the address Woodpecker resolves from
       # inside the compose network, and the OAuth redirect has to agree with it.
