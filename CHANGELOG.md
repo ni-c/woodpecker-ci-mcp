@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
-## [Unreleased]
+## [0.2.0] - 2026-09-03
 
 ### Added
 
@@ -32,33 +32,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Woodpecker's objects are described as open objects with the top-level keys
   this server builds — the upstream Go models change what they serialize
   between releases, and a strict shape would turn that into a failed call.
-
-### Changed
-
-- The advertised schemas avoid a spelling that is legal JSON Schema and still
-  gets a tool refused, or its constraint silently dropped, by some MCP clients:
-  an open object now writes `"additionalProperties": true` rather than the
-  empty schema `{}` zod emits for it. What the tools accept and return is
-  unchanged; only the way the schema says so is.
-
-- Eight "Nothing to update — pass …" answers are error results rather than
-  plain ones. Each read like an answer while being a refusal.
-
-- A result too large to shrink is an error rather than an envelope saying so.
-  The envelope was a different shape from what the tool declares it returns,
-  which the SDK refuses.
-
-- The two-call `confirm_token` prompt is an error result. What was asked for did
-  not happen, which is what `isError` says. The text is unchanged and still
-  carries the token.
-
-- `move_repository` no longer describes the HTTP 500 it answered with as the
-  behaviour of the endpoint. On 3.11 it performed the move and then failed on a
-  permission record with no repository attached; on 3.18 the call answers
-  cleanly. The warning stays, scoped to the older instances it is true of, since
-  a server points at whichever instance it was given.
-
-### Added
 
 - The tools that need a confirmation now **ask the user**, on clients that
   can show a prompt. The two-call `confirm_token` remains for clients that
@@ -99,6 +72,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   page named the two new tools, which is exactly what it is for.
 
 ### Changed
+
+- The advertised schemas avoid a spelling that is legal JSON Schema and still
+  gets a tool refused, or its constraint silently dropped, by some MCP clients:
+  an open object now writes `"additionalProperties": true` rather than the
+  empty schema `{}` zod emits for it. What the tools accept and return is
+  unchanged; only the way the schema says so is.
+
+- Eight "Nothing to update — pass …" answers are error results rather than
+  plain ones. Each read like an answer while being a refusal.
+
+- A result too large to shrink is an error rather than an envelope saying so.
+  The envelope was a different shape from what the tool declares it returns,
+  which the SDK refuses.
+
+- The two-call `confirm_token` prompt is an error result. What was asked for did
+  not happen, which is what `isError` says. The text is unchanged and still
+  carries the token.
+
+- `move_repository` no longer describes the HTTP 500 it answered with as the
+  behaviour of the endpoint. On 3.11 it performed the move and then failed on a
+  permission record with no repository attached; on 3.18 the call answers
+  cleanly. The warning stays, scoped to the older instances it is true of, since
+  a server points at whichever instance it was given.
 
 - The confirmation prompt is a **plain result rather than an error**. Asking a
   question is not a failure, and the rest of the family answers it this way.
@@ -299,6 +295,7 @@ First public release.
 - The fatal-error handler prints the message and stack rather than the error
   object, whose `cause` chain can carry the failed request's headers.
 
+[0.2.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.1.0
 
 <!-- #endregion changelog -->
