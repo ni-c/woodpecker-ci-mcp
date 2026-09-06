@@ -1,6 +1,7 @@
 # woodpecker-ci-mcp
 
 [![CI](https://img.shields.io/github/actions/workflow/status/ni-c/woodpecker-ci-mcp/ci.yml?branch=main&label=CI)](https://github.com/ni-c/woodpecker-ci-mcp/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ni-c/woodpecker-ci-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/ni-c/woodpecker-ci-mcp)
 [![npm version](https://img.shields.io/npm/v/@ni-c/woodpecker-ci-mcp)](https://www.npmjs.com/package/@ni-c/woodpecker-ci-mcp)
 [![npm downloads](https://img.shields.io/npm/dm/@ni-c/woodpecker-ci-mcp)](https://www.npmjs.com/package/@ni-c/woodpecker-ci-mcp)
 [![node](https://img.shields.io/node/v/@ni-c/woodpecker-ci-mcp)](https://nodejs.org)
