@@ -1,16 +1,19 @@
 # woodpecker-ci-mcp
 
+<!-- badges: start -->
+
 [![CI](https://img.shields.io/github/actions/workflow/status/ni-c/woodpecker-ci-mcp/ci.yml?branch=main&label=CI)](https://github.com/ni-c/woodpecker-ci-mcp/actions/workflows/ci.yml)
 [![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/ni-c/woodpecker-ci-mcp/badge)](https://scorecard.dev/viewer/?uri=github.com/ni-c/woodpecker-ci-mcp)
-[![npm version](https://img.shields.io/npm/v/@ni-c/woodpecker-ci-mcp)](https://www.npmjs.com/package/@ni-c/woodpecker-ci-mcp)
-[![npm downloads](https://img.shields.io/npm/dm/@ni-c/woodpecker-ci-mcp)](https://www.npmjs.com/package/@ni-c/woodpecker-ci-mcp)
-[![node](https://img.shields.io/node/v/@ni-c/woodpecker-ci-mcp)](https://nodejs.org)
-[![license](https://img.shields.io/npm/l/@ni-c/woodpecker-ci-mcp)](LICENSE)
-[![container](https://img.shields.io/badge/ghcr.io-ni--c%2Fwoodpecker--ci--mcp-blue)](https://github.com/ni-c/woodpecker-ci-mcp/pkgs/container/woodpecker-ci-mcp)
-[![docs](https://img.shields.io/badge/docs-woodpecker--ci--mcp.ni--c.de-informational)](https://woodpecker-ci-mcp.ni-c.de)
-[![HTTP • via mcp-hub](https://img.shields.io/badge/HTTP-via%20mcp--hub-6f42c1)](https://mcp-hub.ni-c.de)
-[![Glama](https://glama.ai/mcp/servers/ni-c/woodpecker-ci-mcp/badges/score.svg)](https://glama.ai/mcp/servers/ni-c/woodpecker-ci-mcp)
+<a href="https://socket.dev/npm/package/@ni-c/woodpecker-ci-mcp"><img src="https://socket.dev/api/badge/npm/package/@ni-c/woodpecker-ci-mcp" alt="Socket supply-chain report" height="20"></a>
+[![Glama score](https://glama.ai/mcp/servers/ni-c/woodpecker-ci-mcp/badges/score.svg)](https://glama.ai/mcp/servers/ni-c/woodpecker-ci-mcp)
+<br>
+[![npm version](https://img.shields.io/npm/v/%40ni-c%2Fwoodpecker-ci-mcp)](https://www.npmjs.com/package/@ni-c/woodpecker-ci-mcp)
+[![container image](https://img.shields.io/badge/ghcr.io-ni--c%2Fwoodpecker--ci--mcp-4f46e5?logo=docker&logoColor=white)](https://github.com/ni-c/woodpecker-ci-mcp/pkgs/container/woodpecker-ci-mcp)
+[![HTTP via mcp-hub](https://img.shields.io/badge/HTTP-via%20mcp--hub-4f46e5?logo=modelcontextprotocol&logoColor=white)](https://mcp-hub.ni-c.de)
+<br>
+[![docs](https://img.shields.io/badge/docs-woodpecker--ci--mcp.ni--c.de-4f46e5?logo=readthedocs&logoColor=white)](https://woodpecker-ci-mcp.ni-c.de)
 [![sponsor](https://img.shields.io/badge/sponsor-ni--c-ea4aaa?logo=githubsponsors&logoColor=white)](https://github.com/sponsors/ni-c)
+<!-- badges: end -->
 
 A [Model Context Protocol](https://modelcontextprotocol.io) (MCP) server for
 [Woodpecker CI](https://woodpecker-ci.org), the lightweight container-native CI
