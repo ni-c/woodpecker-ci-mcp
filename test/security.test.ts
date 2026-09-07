@@ -385,7 +385,10 @@ describe('a confirmation is bound to the arguments it was issued for', () => {
    *
    * `test/approval.test.ts` covers the mechanism; these cover the binding, which
    * is the part that was broken. `confirmed()` in the harness cannot: it re-sends
-   * the first call's arguments by construction.
+   * the first call's arguments by construction. The key is `orderedResourceKey`
+   * from mcp-approval 0.8.2 since 0.3.0 — before that a local copy of the same
+   * idea — and these are what keep the switch honest: a token for one order of
+   * the ids must still be refused for the other, through the tool itself.
    */
   it('refuses a token issued for the reversed pair of ids', async () => {
     const stub = stubFetch({

@@ -4,10 +4,10 @@ import type {
   McpServer,
   ServerContext,
 } from '@modelcontextprotocol/server';
+import { orderedResourceKey } from 'mcp-approval';
 import type { Approver, ConfirmationStore } from 'mcp-approval';
 
 import { errorResult } from './result.js';
-import { tupleResourceKey } from './resource-key.js';
 
 /**
  * Wraps an operation that must not happen without someone agreeing to it.
@@ -29,11 +29,16 @@ import { tupleResourceKey } from './resource-key.js';
  * too, or the second call is free to send a different one.
  *
  * Every entry carries its role as a prefix (`repo:5`, `pipeline:12`), and the key
- * is built by `tupleResourceKey` rather than the library's `setResourceKey`,
- * which sorts. Both, because these targets are ordered tuples of small integers
- * and either mistake alone lets a confirmation for one pair authorise the pair
- * read backwards — see `tupleResourceKey` for what that costs on
- * `approve_pipeline`.
+ * is built by `orderedResourceKey` rather than `setResourceKey`, which sorts.
+ * Both, because these targets are ordered tuples of small integers and either
+ * mistake alone lets a confirmation for one pair authorise the pair read
+ * backwards: a person who read "approve blocked pipeline 12 of repository 5 …
+ * runs that fork's code with this repository's secrets" would otherwise be
+ * authorising pipeline 5 of repository 12 as well — a different fork, and the
+ * secrets of a repository nobody mentioned. On a real instance both numbers are
+ * small and close together, so the swap is not even implausible. This server
+ * carried its own `tupleResourceKey` for that until mcp-approval 0.8.2 offered
+ * the ordered key itself.
  *
  * Nothing coming from the API — no name, description or commit message — may be
  * passed into `what` or `consequence`. Those strings are read by a model, and
@@ -56,7 +61,7 @@ export async function guarded(
   const outcome = await approval.requestApproval(server, mcp, confirmations, {
     what: options.what,
     consequence: options.consequence,
-    resourceKey: tupleResourceKey(options.tool, options.targets),
+    resourceKey: orderedResourceKey(options.tool, options.targets),
     token: options.confirmToken,
     toolName: options.tool,
     hint: 'Tick to go ahead, leave it to cancel.',

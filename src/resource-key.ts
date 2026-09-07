@@ -1,34 +1,13 @@
 import { createHash } from 'node:crypto';
 
-/**
- * Binds a confirmation to an ordered tuple of targets.
- *
- * `setResourceKey` from `mcp-approval` hashes `[...targets].sort()`, which is
- * right for what its name says — a *set* — and wrong for almost every tool here.
- * This server's targets are positional tuples of interchangeable-looking small
- * integers: `approve_pipeline` takes `(repo_id, number)`, `delete_step_logs`
- * takes `(repo_id, number, step_id)`. Sorted, `["5","12"]` and `["12","5"]` are
- * the same key, so a person who read "approve blocked pipeline 12 of repository
- * 5 … runs that fork's code with this repository's secrets" would be authorising
- * pipeline 5 of repository 12 as well — a different fork, and secrets of a
- * repository nobody mentioned. On a real instance both numbers are small and
- * close together, so the swap is not even implausible.
- *
- * Preserving the order is a caller-side fix on purpose. `mcp-approval` is shared
- * with the rest of the fleet and does exactly what it promises; a server whose
- * targets are ordered says so here rather than making the library configurable.
- * The call sites label their targets as well (`repo:5`, `pipeline:12`), so the
- * binding survives even if a key ever goes back through a sorting helper.
- */
-export function tupleResourceKey(
-  operation: string,
-  targets: readonly string[]
-): string {
-  return `${operation}:${createHash('sha256')
-    .update(JSON.stringify(targets))
-    .digest('hex')
-    .slice(0, 16)}`;
-}
+// The confirmation key itself is not built here. Every guarded tool binds to an
+// ordered tuple of interchangeable-looking small integers — `approve_pipeline`
+// to `(repo_id, number)`, `delete_step_logs` to `(repo_id, number, step_id)` —
+// so a key that sorted its targets would let a confirmation for pipeline 12 of
+// repository 5 authorise pipeline 5 of repository 12. That key comes from
+// `orderedResourceKey` in `mcp-approval`, which fixes each part to its position;
+// see `guard.ts`. This module keeps what is specific to this server: the
+// fingerprint of a body, and the rule for what may be named in a prompt.
 
 /**
  * A stable short hash of everything a guarded call is about to write.
@@ -39,7 +18,7 @@ export function tupleResourceKey(
  * `require_approval: "none"` — the person agreed to one sentence and a different
  * request was executed. Keys are sorted recursively so that the same body
  * written in a different order is the same fingerprint; argument *order* is
- * carried by {@link tupleResourceKey}, and a JSON object has none.
+ * carried by `orderedResourceKey` in `guard.ts`, and a JSON object has none.
  */
 export function fingerprint(value: unknown): string {
   return createHash('sha256')
