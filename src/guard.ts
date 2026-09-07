@@ -12,9 +12,10 @@ import { errorResult } from './result.js';
 /**
  * Wraps an operation that must not happen without someone agreeing to it.
  *
- * Twenty tools need this exact dance, and writing it out twenty times is how one
- * of them ends up subtly different — a resource key without the target in it,
- * say, which would let a confirmation for one repository delete another.
+ * Twenty-four tools need this exact dance, and writing it out twenty-four
+ * times is how one of them ends up subtly different — a resource key without
+ * the target in it, say, which would let a confirmation for one repository
+ * delete another.
  *
  * Where the client can put a question in front of a person, it is asked. Where
  * it cannot, the two-call token remains: the first call returns a prompt, the

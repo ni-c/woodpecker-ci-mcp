@@ -159,6 +159,13 @@ export async function connect(
     client.connect(clientTransport),
     server.connect(serverTransport),
   ]);
+  // Once, here, so every `callTool` in every suite runs the client-side check
+  // of `structuredContent` against the tool's declared `outputSchema`. The
+  // SDK only validates when it has seen the schema, and it only sees it
+  // through `tools/list` — a test that calls without listing never exercises
+  // the success path a real client takes, which is where a closed schema, a
+  // stray field or an integer that is not one turn into a protocol error.
+  await client.listTools();
   return Object.assign(client, { prompts });
 }
 

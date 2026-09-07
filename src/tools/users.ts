@@ -3,6 +3,7 @@ import { plain } from '../output-schema.js';
 import type { McpServer, CallToolResult } from '@modelcontextprotocol/server';
 import {
   confirmTokenParam,
+  forgeIdParam,
   loginParam,
   pageParam,
   perPageParam,
@@ -10,9 +11,9 @@ import {
 
 import { pathSegment, query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
-import { identifier } from '../resource-key.js';
+import { fingerprint, identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
-import { listOf, summarizeUser } from '../normalize.js';
+import { listOf, objectOf, summarizeUser } from '../normalize.js';
 import {
   errorResult,
   budgetedList,
@@ -30,14 +31,10 @@ import type { ToolContext } from './context.js';
  * because a login is only unique within a forge and Woodpecker 3 supports
  * several. `list_users` shows the forge_id of each account.
  */
-const forgeIdQueryParam = z
-  .number()
-  .int()
-  .min(1)
-  .describe(
-    'Which forge the login belongs to. Required by the API — a login is only ' +
-      'unique per forge. list_users shows it; on a single-forge instance it is 1.'
-  );
+const forgeIdQueryParam = forgeIdParam.describe(
+  'Which forge the login belongs to. Required by the API — a login is only ' +
+    'unique per forge. list_users shows it; on a single-forge instance it is 1.'
+);
 
 export function registerUserTools(
   server: McpServer,
@@ -92,9 +89,12 @@ export function registerUserTools(
       run(async () =>
         jsonResult(
           summarizeUser(
-            (await api.get(
-              `/users/${pathSegment(login, 'login')}${query({ forge_id, forge_remote_id })}`
-            )) as Record<string, unknown>
+            objectOf(
+              await api.get(
+                `/users/${pathSegment(login, 'login')}${query({ forge_id, forge_remote_id })}`
+              ),
+              'user'
+            )
           )
         )
       )
@@ -146,16 +146,15 @@ export function registerUserTools(
     },
     async ({ login, email, admin, confirm_token }, mcp) =>
       run(async () => {
-        const create = async (): Promise<CallToolResult> => {
-          const body: Record<string, unknown> = { login };
-          if (email !== undefined) body.email = email;
-          if (admin !== undefined) body.admin = admin;
-          return jsonResult({
+        const body: Record<string, unknown> = { login };
+        if (email !== undefined) body.email = email;
+        if (admin !== undefined) body.admin = admin;
+        const create = async (): Promise<CallToolResult> =>
+          jsonResult({
             user: summarizeUser(
-              (await api.post('/users', body)) as Record<string, unknown>
+              objectOf(await api.post('/users', body), 'user')
             ),
           });
-        };
 
         // Guarded on the same field, and only that field, as update_user right
         // below. Until this call, `update_user(admin: true)` asked and
@@ -163,6 +162,10 @@ export function registerUserTools(
         // flag, with a dialog in front of one of them. The description even
         // advertised the gap: "which is how you make someone an admin before
         // they first log in."
+        //
+        // The whole body is in the key, not just the flag: a token issued for
+        // "create octocat as an administrator" must not also confirm the same
+        // call with an email address the first one never carried.
         if (admin === true) {
           return guarded(
             server,
@@ -171,8 +174,10 @@ export function registerUserTools(
             confirmations,
             {
               tool: 'create_user',
-              targets: [`login:${login}`, 'admin'],
-              what: `create the account "${identifier(login, 'login')}" as an instance administrator`,
+              targets: [`login:${login}`, 'admin', `body:${fingerprint(body)}`],
+              what:
+                `create the account "${identifier(login, 'login')}" as an instance administrator` +
+                (email === undefined ? '' : ', with an email address'),
               consequence:
                 'An instance administrator reads and writes every repository, ' +
                 'secret and agent on this server, and can grant the same to others.',
@@ -225,6 +230,10 @@ export function registerUserTools(
         // two-step would train whoever reads these prompts to click through
         // them, which costs more than it buys — this is the one field that
         // hands over the whole instance, so this is the one that stops.
+        //
+        // But once it stops, it stops for the whole call: the email travels
+        // in the key and in the sentence, so a token for "make octocat an
+        // administrator" does not also carry a new address it was not shown.
         if (admin === true) {
           return guarded(
             server,
@@ -233,8 +242,15 @@ export function registerUserTools(
             confirmations,
             {
               tool: 'update_user',
-              targets: [`login:${login}`, `forge:${forge_id ?? ''}`, 'admin'],
-              what: `make the account "${identifier(login, 'login')}" an instance administrator`,
+              targets: [
+                `login:${login}`,
+                `forge:${forge_id ?? ''}`,
+                'admin',
+                `body:${fingerprint({ email, admin })}`,
+              ],
+              what:
+                `make the account "${identifier(login, 'login')}" an instance administrator` +
+                (email === undefined ? '' : ', and change its email address'),
               consequence:
                 'An instance administrator reads and writes every repository, ' +
                 'secret and agent on this server, and can grant the same to others.',
@@ -266,9 +282,12 @@ export function registerUserTools(
     // the full object, with forge_id and forge_remote_id so the handler's own
     // lookup finds the right row, is the only way to make it behave like the
     // partial update its name promises.
-    const current = (await api.get(
-      `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
-    )) as Record<string, unknown>;
+    const current = objectOf(
+      await api.get(
+        `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
+      ),
+      'user'
+    );
 
     const body: Record<string, unknown> = {
       login: current.login,
@@ -283,9 +302,12 @@ export function registerUserTools(
 
     // The response to the PATCH is the request echoed back, not the stored
     // account, so it is read again rather than reported.
-    const updated = (await api.get(
-      `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
-    )) as Record<string, unknown>;
+    const updated = objectOf(
+      await api.get(
+        `/users/${pathSegment(login, 'login')}${query({ forge_id })}`
+      ),
+      'user'
+    );
     return jsonResult({ user: summarizeUser(updated) });
   }
 

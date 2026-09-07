@@ -12,6 +12,7 @@ import {
 import {
   agentIdParam,
   confirmTokenParam,
+  MAX_MAP_ENTRIES,
   orgIdParam,
   pageParam,
   perPageParam,
@@ -20,7 +21,7 @@ import {
 import { query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
 import { guarded } from '../guard.js';
-import { listOf, redactAgent } from '../normalize.js';
+import { listOf, objectOf, redactAgent } from '../normalize.js';
 import type { ToolContext } from './context.js';
 
 /**
@@ -51,6 +52,9 @@ const noScheduleParam = z
 
 const customLabelsParam = z
   .record(z.string().min(1).max(100), z.string().max(500))
+  .refine((labels) => Object.keys(labels).length <= MAX_MAP_ENTRIES, {
+    message: `at most ${MAX_MAP_ENTRIES} labels`,
+  })
   .describe(
     'Labels this agent advertises, as a flat string map. A pipeline selects agents ' +
       'with a matching "labels" block.'
@@ -116,9 +120,7 @@ export function registerAgentTools(
     async ({ agent_id }) =>
       run(async () =>
         jsonResult(
-          redactAgent(
-            (await api.get(`/agents/${agent_id}`)) as Record<string, unknown>
-          )
+          redactAgent(objectOf(await api.get(`/agents/${agent_id}`), 'agent'))
         )
       )
   );
@@ -240,7 +242,7 @@ export function registerAgentTools(
             ? `/agents/${agent_id}`
             : `/orgs/${org_id}/agents/${agent_id}`;
         return jsonResult(
-          redactAgent((await api.patch(path, body)) as Record<string, unknown>)
+          redactAgent(objectOf(await api.patch(path, body), 'agent'))
         );
       })
   );

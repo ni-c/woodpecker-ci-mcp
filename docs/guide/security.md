@@ -38,11 +38,31 @@ useful to know, because it means there is no tool that can read them back:
 Store a secret's value somewhere else when you set it. This server cannot give it
 back to you, and neither can the web UI.
 
+## What Woodpecker does return, and this server redacts
+
+A forge's `additional_options` come back raw to an administrator — `GET
+/forges/{id}` filters them only for everyone else — and for a Bitbucket Data
+Center forge that map holds `git-username` and `git-password`, the service
+account Woodpecker clones with. So the credential scrubber does not work from a
+list of field names: any key that *ends* in `password`, `passwd`, `passphrase`,
+`secret`, `token`, `api_key` or `private_key`, however it is separated or cased,
+is replaced with a marker wherever it sits in a response. `git-password`,
+`oauth_client_secret` and a `token` inside an agent are all the same rule.
+`create_agent` is the one deliberate exception, above.
+
+Every other string in a response is cleaned on the way out: terminal escape
+sequences, the C1 controls, and the invisible and direction-changing formatting
+characters are removed from commit messages, branch names, step errors and
+notes as they are from build logs, and `scheme://user:password@host` in any
+URL-shaped field loses its credential. The text a client shows is the text the
+instance stored, minus what could rewrite the line next to it.
+
 ## Irreversible operations ask a person
 
-Twenty-three tools ask: every `delete_*`, plus `move_repository`, `chown_repository`,
-the whole-instance `repair_repository`, `update_forge`, `pause_queue` and
-`approve_pipeline` — and five more only in the direction that escalates:
+Twenty-four tools ask: every `delete_*`, plus `move_repository`, `chown_repository`,
+the whole-instance `repair_repository`, `create_forge`, `update_forge`,
+`pause_queue` and `approve_pipeline` — and five more only in the direction that
+escalates:
 `update_user` when it grants `admin`, `create_user` when it creates one,
 `update_repository` when it grants one of the `trusted_*` flags or lowers a
 confidentiality boundary (`require_approval` down, `visibility` to `public`),
@@ -83,7 +103,15 @@ that in its own reasoning while the tool that performs the transfer did not ask.
 `create_user` is asked about on exactly the field `update_user` is — until it was
 added, the same privilege by the same flag had a dialog in front of one of them and
 not the other, and the description advertised the gap: "which is how you make
-someone an admin before they first log in."
+someone an admin before they first log in." Both grants bind their token to the
+whole call, the email address included: a token issued for "make octocat an
+administrator" does not also carry an address the person was never shown.
+
+`create_forge` is asked about for what a forge *is*: a way to sign in. Woodpecker
+compares the login name against `WOODPECKER_ADMIN` and nothing else — not the
+forge it came from — so an account on a newly added forge spelled like an
+administrator's is an administrator on its first login. `update_forge` asked; the
+tool that adds a forge did not, until 0.3.1.
 
 See [Asking a person](/guide/approval).
 
@@ -120,8 +148,13 @@ name itself into a confirmation dialogue.
   smaller answer.
 - Build logs have a much smaller budget of their own and are cut at a line
   boundary, never mid-character.
-- Upstream error bodies are truncated, and HTML error pages — a proxy's, a WAF's
-  — are dropped rather than pasted into the context.
+- An error is decided by its status before its body is read, and that body is
+  read under a ceiling of its own that cuts rather than refuses: a 401 whose
+  body is a two-megabyte login page is a 401, with the hint about the token,
+  not "the answer exceeds the ceiling".
+- Upstream error bodies are cleaned of control characters, truncated and
+  labelled as the instance's words; HTML error pages — a proxy's, a WAF's — are
+  dropped rather than pasted into the context.
 
 ## Reporting a vulnerability
 

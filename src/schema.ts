@@ -200,6 +200,15 @@ export const branchParam = z
   .describe('Branch name.');
 
 /**
+ * How many entries a caller-supplied string map may carry.
+ *
+ * Each key and each value has a length, and without this the *number* of them
+ * had none: ten thousand 10-kB variables is a 100 MB request body built in
+ * this process and posted to the instance, from one tool call.
+ */
+export const MAX_MAP_ENTRIES = 100;
+
+/**
  * Pipeline variables.
  *
  * A flat string map, and only a flat one: Woodpecker's `PipelineOptions.variables`
@@ -207,6 +216,9 @@ export const branchParam = z
  */
 export const variablesParam = z
   .record(z.string().min(1).max(200), z.string().max(10_000))
+  .refine((variables) => Object.keys(variables).length <= MAX_MAP_ENTRIES, {
+    message: `at most ${MAX_MAP_ENTRIES} variables`,
+  })
   .describe(
     'Extra variables for this run, as a flat string-to-string map. Nested values ' +
       'are rejected by the API.'

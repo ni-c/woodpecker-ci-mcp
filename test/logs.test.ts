@@ -5,6 +5,7 @@ import {
   logNote,
   MAX_LOG_BYTES,
   type LogEntry,
+  parseExitCode,
   stripControlCharacters,
 } from '../src/logs.js';
 
@@ -113,6 +114,57 @@ describe('decodeLog', () => {
     const log = decodeLog([{ line: 0, type: 0 }], { limit: 10, from: 'head' });
     expect(log.text).toBe('');
   });
+
+  it('skips entries that are not objects, and data that is not a string', () => {
+    // `listOf` proves the response is an array; what is in it is the
+    // instance's business. `Buffer.from(12345, 'base64')` throws.
+    const log = decodeLog(
+      [
+        null as unknown as LogEntry,
+        7 as unknown as LogEntry,
+        { line: 0, type: 0, data: 12345 as unknown as string },
+        entry(1, 'real'),
+        { line: 'two' as unknown as number, type: 0, data: 'bGF0ZQ==' },
+      ],
+      { limit: 10, from: 'head' }
+    );
+    // The numeric-data entry decodes to nothing and sorts first with the
+    // unnumbered one; the stable sort keeps the input order between them.
+    expect(log.text).toBe('\nlate\nreal');
+    expect(log.totalLines).toBe(3);
+  });
+});
+
+describe('parseExitCode', () => {
+  // The output schema promises an integer, and the SDK enforces the promise on
+  // the client's side of every successful call: a value it refuses fails the
+  // whole answer. So the parser promises the same thing, or nothing.
+  it.each([
+    ['0', 0],
+    ['2', 2],
+    ['-1', -1],
+    [' 137\n', 137],
+    ['-0', 0],
+  ])('reads %o as %d', (text, code) => {
+    expect(parseExitCode(text)).toBe(code);
+    expect(Object.is(parseExitCode(text), -0)).toBe(false);
+  });
+
+  it.each(['', '1.5', '1e20', '0x1f', 'abc', '99999999999', '1_0', '+3'])(
+    'reads %o as no exit code at all',
+    (text) => {
+      expect(parseExitCode(text)).toBeUndefined();
+    }
+  );
+
+  it('reports no exit code for an exit entry with empty data', () => {
+    // `Number('')` is 0 — a step reported as succeeded on no evidence.
+    const log = decodeLog([entry(0, 'out'), { line: 1, type: 2, data: '' }], {
+      limit: 10,
+      from: 'head',
+    });
+    expect(log.exitCode).toBeUndefined();
+  });
 });
 
 describe('logNote', () => {
@@ -160,6 +212,18 @@ describe('stripControlCharacters', () => {
   it('drops raw binary but keeps tabs and newlines', () => {
     expect(stripControlCharacters('a\u0000\u0001b\tc\nd')).toBe('ab\tc\nd');
   });
+  it('drops the C1 controls and the bidi overrides, and keeps real text', () => {
+    // U+009B is the one-byte CSI, U+202E reverses the rest of the line with
+    // no escape at all, U+200B is invisible. None of them is log text; the
+    // umlaut, the arrow and the emoji are.
+    const csi = String.fromCharCode(0x9b);
+    const rlo = String.fromCodePoint(0x202e);
+    const zwsp = String.fromCodePoint(0x200b);
+    expect(
+      stripControlCharacters(`ok${csi}31m ${rlo}dessap${zwsp} — ü → 🚀`)
+    ).toBe('ok31m dessap — ü → 🚀');
+  });
+
   // The regression for a quadratic blow-up, so the assertion that matters is
   // the timeout rather than the value. The carriage-return rule used to read
   // `[^\n]*\r`: the star runs to the end of the line, finds no `\r`, and

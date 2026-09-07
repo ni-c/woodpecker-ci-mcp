@@ -38,6 +38,10 @@ API:
   containers, written by whoever can push a commit. This server marks them as
   untrusted content, and confirmation prompts never quote anything that came from
   the API.
+- **A forge's `additional_options` come back raw to an administrator.** For a
+  Bitbucket Data Center forge that is the `git-password` of the service account
+  Woodpecker clones with. This server redacts any field whose name ends in
+  `password`, `secret`, `token`, `api_key` or `private_key`, wherever it sits.
 
 What the token does **not** let this server do is hand itself out: `POST /user/token`
 and `DELETE /user/token` are deliberately not exposed as tools — see "Not exposed, on
@@ -48,7 +52,7 @@ Treat every environment variable this server reads as a secret. The MCP client
 process, and therefore the model driving it, sees every tool result — do not point
 this server at a system whose data you would not put in a model's context.
 
-Twenty-three operations that cannot be undone **ask a person** through MCP
+Twenty-four operations that cannot be undone **ask a person** through MCP
 elicitation: a dialog raised by the server and shown by the client, which the model
 cannot answer on its behalf, and which nothing proceeds without. Where the client
 cannot show one they fall back to a server-generated token bound to the exact

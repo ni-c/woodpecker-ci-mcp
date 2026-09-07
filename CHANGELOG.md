@@ -12,6 +12,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [0.3.1] - 2026-09-07
+
+### Security
+
+- **A Bitbucket Data Center forge's service-account password reached the
+  model.** `GET /forges/{id}`, `GET /forges` and the answers to `create_forge`
+  and `update_forge` hand an administrator the raw `Forge`, `additional_options`
+  included — and for `bitbucket-dc` that map holds `git-username` and
+  `git-password`. The credential scrubber matched field names exactly:
+  `password` was on the list, `git-password` was not. Any key that _ends_ in
+  `password`, `passwd`, `passphrase`, `secret`, `token`, `api_key` or
+  `private_key` — however separated or cased — is now redacted wherever it sits.
+- **`create_forge` asks a person.** Woodpecker decides who is an administrator
+  by comparing the login name against `WOODPECKER_ADMIN` and nothing else, not
+  the forge the login came from. A forge somebody else controls, with an
+  account on it spelled like an administrator's, is an administrator on its
+  first login — and `update_forge` was two-step while the tool that adds one
+  applied on the first call. The confirmation is bound to the type, URL,
+  client id, OAuth host, `skip_verify` and a fingerprint of the whole body.
+  Twenty-four tools ask now.
+- **An admin grant is bound to the whole call.** `create_user` and
+  `update_user` keyed their confirmation on the login and the `admin` flag;
+  a token issued for "make octocat an administrator" also confirmed the same
+  call with an email address the person was never shown. The body is in the
+  key, and the sentence says when an address travels with the grant.
+- **An error is decided by its status before its body is read.** Every
+  response was read under the 32 MB ceiling and _then_ checked for `ok`, so a
+  reverse proxy answering 401 with a two-megabyte login page surfaced as "the
+  answer exceeds the ceiling" — the size, not the status, no word about the
+  token — after buffering the page. Error bodies are read under a 16 kB
+  ceiling of their own that cuts rather than refuses.
+- **Every string in a result is cleaned, not only build logs.** Commit
+  messages, branch names, step errors, secret notes and the rest reached
+  `structuredContent` with terminal escapes, C1 controls and bidi overrides
+  intact (the text block was safe by JSON escaping). The class `mcp-approval`
+  keeps out of a confirmation prompt is now kept out of every string this
+  server hands to a model, build logs included — which also gain the C1 and
+  bidi half — and `scheme://user:password@host` in any URL-shaped field loses
+  its credential.
+- **What the instance wrote into an error is cleaned and labelled.** The
+  `content-type` header quoted by the "this is the web UI, not the API" error
+  was the proxy's raw text, up to 16 kB with control characters; an error
+  body was trimmed and cut but not cleaned, and nothing said whose words they
+  were. Both go through one helper now: control characters out, cut, and
+  `(untrusted text from the instance):` in front.
+- **`ELICITATION` is not echoed.** A value that was neither `true` nor `false`
+  was printed verbatim into the fatal startup line — and that variable sits one
+  line below `WOODPECKER_TOKEN` in every Compose file. A short word is quoted so
+  a typo stays readable; anything else is described by its length. The scheme
+  of a rejected `WOODPECKER_URL` is treated the same way.
+- **The release job installs with `--ignore-scripts`.** It is the one job that
+  holds an OIDC token for npm Trusted Publishing, and it ran every dependency's
+  install hook while it did. `gh release create` verifies the tag. The CI
+  workflow gains a dependency review on pull requests, and the runtime image
+  loses yarn and corepack along with npm, and no longer carries the lockfile.
+
+### Fixed
+
+- `get_step_logs` failed as a whole — log included — when the exit-code entry
+  was not what the output schema promised: `Number("1.5")` is not an integer,
+  `1e20` is past the safe range, and `Number("")` is `0`, which reported a
+  step as succeeded on no evidence. A run of digits is an exit code; anything
+  else is no exit code, and the log is still answered.
+- A `"__proto__"` key in a response — legal JSON, an own property after
+  `JSON.parse` — was _assigned_ into the redacted copy, which set its
+  prototype and dropped the field; an oversized string under that key went
+  through a thousand shortening rounds without ever getting shorter. Copies
+  are built with `Object.fromEntries`, shortened slots are written as own
+  properties, and the record of dropped arrays is a `Map`.
+- A `truncated` note a tool had already written — `get_pipeline_config`'s
+  count of unread files — was replaced when the budget then dropped array
+  entries. The two are merged.
+- An empty `200` from a pass-through endpoint crashed into
+  `Buffer.byteLength(undefined)`; it is an empty object now, and the tools that
+  cast a response instead of checking it (`get_agent`, `update_agent`,
+  `get_user`, `create_user`, `update_user`) say "expected a user object"
+  rather than "Cannot read properties of undefined".
+- A `null` entry in a log, or a numeric `data` field, threw out of the decoder;
+  both are skipped.
+- `forge_id` on the user tools had no upper bound, so `1e21` became `1e+21`
+  in the query string and in the key a confirmation is bound to; it shares the
+  id bound now. Pipeline `variables` and agent `custom_labels` are capped at
+  100 entries — each key and value had a length, the number of them had none.
+- `normalizeServerRoot` trimmed trailing slashes with `/\/+$/`, which is
+  quadratic on a run of slashes that is not at the end. Operator input only,
+  and one line to fix.
+- The test harness lists the tools once per connection, so the SDK's
+  client-side check of `structuredContent` against each `outputSchema` runs
+  on the success path of every tool in every suite — which is how the
+  exit-code finding above would have been caught.
+
 ## [0.3.0] - 2026-09-07
 
 ### Added
@@ -314,6 +405,7 @@ First public release.
 - The fatal-error handler prints the message and stack rather than the error
   object, whose `cause` chain can carry the failed request's headers.
 
+[0.3.1]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.3.0
 [0.2.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.1.0

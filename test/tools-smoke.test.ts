@@ -402,6 +402,7 @@ const CASES: Record<string, Case> = {
     },
     expect: 'POST /forges',
     reply: { json: forge },
+    guarded: true,
   },
   update_forge: {
     args: { forge_id: 1, url: 'https://forge.example.com' },

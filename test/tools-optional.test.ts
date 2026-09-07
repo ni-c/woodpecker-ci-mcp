@@ -286,7 +286,7 @@ describe('optional arguments reach the API', () => {
 
   it('sends the optional forge fields', async () => {
     const stub = stubFetch({ 'POST /forges': { json: {} } });
-    await call(await connect(), 'create_forge', {
+    await confirmed(await connect(), 'create_forge', {
       type: 'forgejo',
       url: 'https://forge.example.com',
       client: 'id',

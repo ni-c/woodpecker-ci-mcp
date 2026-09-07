@@ -5,6 +5,8 @@
  * a page parameter, and whose content is written by arbitrary containers.
  */
 
+import { UNSAFE_CHARS } from './normalize.js';
+
 /**
  * The `type` discriminator on a log entry.
  *
@@ -68,19 +70,26 @@ export interface DecodedLog {
  *    does not, and joining with `\n` regardless produces blank lines throughout.
  */
 export function decodeLog(
-  entries: LogEntry[],
+  rawEntries: LogEntry[],
   options: { limit: number; from: 'head' | 'tail'; maxBytes?: number }
 ): DecodedLog {
   const maxBytes = options.maxBytes ?? MAX_LOG_BYTES;
 
+  // `listOf` proves the response is an array; what is in it is the
+  // instance's business. A `null` entry, or a number where an object should
+  // be, is skipped rather than read as `entry.type` and thrown as a TypeError.
+  const entries = rawEntries.filter(
+    (entry): entry is LogEntry => entry !== null && typeof entry === 'object'
+  );
+
   const exitEntry = entries.find((entry) => entry.type === LOG_EXIT_CODE);
   const exitCode = exitEntry
-    ? Number(decodeChunk(exitEntry.data, maxBytes, options.from).text)
+    ? parseExitCode(decodeChunk(exitEntry.data, 64, 'head').text)
     : undefined;
 
   const output = entries
     .filter((entry) => entry.type === undefined || entry.type <= LOG_STDERR)
-    .toSorted((a, b) => (a.line ?? 0) - (b.line ?? 0));
+    .toSorted((a, b) => lineNumber(a) - lineNumber(b));
 
   const totalLines = output.length;
   const selected =
@@ -106,10 +115,34 @@ export function decodeLog(
     from: options.from,
     truncatedBytes: truncated || chunkCut,
   };
-  if (exitCode !== undefined && Number.isFinite(exitCode)) {
-    result.exitCode = exitCode;
-  }
+  if (exitCode !== undefined) result.exitCode = exitCode;
   return result;
+}
+
+/** The `line` of an entry, or 0 for anything that is not a number. */
+function lineNumber(entry: LogEntry): number {
+  return typeof entry.line === 'number' ? entry.line : 0;
+}
+
+/**
+ * Reads the exit code out of the type-2 entry, or nothing.
+ *
+ * `get_step_logs` promises `exit_code` as an integer in its output schema, and
+ * the SDK enforces that promise on the client's side of every successful call:
+ * a value the schema refuses is a protocol error for the whole answer, log
+ * included. `Number(text)` kept that promise only for the text a healthy agent
+ * writes. `"1.5"` is a number and not an integer, `"1e20"` is an integer the
+ * schema's safe-integer check refuses, and `""` — an exit entry with no data —
+ * is `0`, which reported a step as succeeded on no evidence at all. A run of
+ * at most ten digits — which is what keeps it inside the safe-integer range
+ * the schema checks — or no exit code.
+ */
+export function parseExitCode(text: string): number | undefined {
+  const trimmed = text.trim();
+  if (!/^-?[0-9]{1,10}$/.test(trimmed)) return undefined;
+  // `+ 0` folds `-0` into `0`: they serialise the same, and a `-0` in
+  // `structuredContent` beside a `0` in the text is two answers.
+  return Number(trimmed) + 0;
 }
 
 /**
@@ -129,7 +162,11 @@ function decodeChunk(
   maxBytes: number,
   from: 'head' | 'tail'
 ): { text: string; truncated: boolean } {
-  if (!data) return { text: '', truncated: false };
+  // `typeof`, not truthiness: `Buffer.from(123, 'base64')` throws, and the
+  // Swagger document types this field as an array in the first place.
+  if (typeof data !== 'string' || data === '') {
+    return { text: '', truncated: false };
+  }
   const decoded = Buffer.from(data, 'base64').toString('utf8');
   const capped = capBytes(decoded, maxBytes, from);
   return {
@@ -186,10 +223,12 @@ export function stripControlCharacters(text: string): string {
       // is one backwards scan per line and does the megabyte in a millisecond.
       .map((line) => line.slice(line.lastIndexOf('\r') + 1))
       .join('\n')
-      // Everything else below space, plus DEL -- but not tab or newline,
-      // which are the structure of a log.
-      // eslint-disable-next-line no-control-regex
-      .replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '')
+      // Everything else below space, DEL, the C1 controls and the invisible
+      // and direction-changing formatting characters -- but not tab or
+      // newline, which are the structure of a log. The class is the one every
+      // string of every result goes through; a log is the same text with a
+      // terminal's `\r` convention applied first.
+      .replace(UNSAFE_CHARS, '')
   );
 }
 

@@ -1,5 +1,7 @@
 import { internalHostKind } from 'mcp-internal-hosts';
 
+import { UNSAFE_CHARS } from './normalize.js';
+
 export interface Config {
   /**
    * Root URL of the Woodpecker server, e.g. `https://woodpecker.example.com`.
@@ -73,9 +75,28 @@ export function parseElicitation(raw: string | undefined): boolean {
   if (value === undefined || value === '' || value === 'true') return true;
   if (value === 'false') return false;
   return fail(
-    `ELICITATION must be "true" or "false" — got "${raw}". ` +
+    `ELICITATION must be "true" or "false" — got ${quoted(String(raw))}. ` +
       'Refusing to start rather than guess.'
   );
+}
+
+/**
+ * A configuration value, quoted for a diagnostic — or only described.
+ *
+ * `ELICITATION` sits one line below `WOODPECKER_TOKEN` in every Compose file,
+ * and a value that is neither `true` nor `false` is exactly what a token pasted
+ * into the wrong line looks like. This message goes to stderr — the MCP
+ * client's log. So only what has the shape of a typo is quoted: a short word
+ * of letters, digits and punctuation, control characters out. Anything else is
+ * described by its length, which is enough to recognise a token by and not
+ * enough to use it. Forty characters of a JWT is its header; forty characters
+ * of an API key is the key.
+ */
+export function quoted(raw: string, max = 12): string {
+  const clean = raw.replace(UNSAFE_CHARS, '');
+  return clean.length <= max && /^[A-Za-z0-9_.:-]*$/.test(clean)
+    ? `"${clean}"`
+    : `a ${raw.length}-character value`;
 }
 
 /**
@@ -136,7 +157,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     }
     if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
       fail(
-        `WOODPECKER_URL must use http:// or https:// (got ${parsed.protocol})`
+        `WOODPECKER_URL must use http:// or https:// (got ${quoted(parsed.protocol, 20)})`
       );
     }
     // Credentials embedded in the URL would end up in logs and error messages.
@@ -175,7 +196,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
  * them producing `/api/api/repos` and a bare 404.
  */
 export function normalizeServerRoot(url: string): string {
-  return url.replace(/\/+$/, '').replace(/\/api$/, '');
+  // Not `/\/+$/`: a run of slashes that is *not* at the end is tried from
+  // every position and backtracked through every length at each — quadratic
+  // in the run. An index walked back from the end is one pass, and the slice
+  // happens once.
+  let end = url.length;
+  while (end > 0 && url[end - 1] === '/') end--;
+  const trimmed = url.slice(0, end);
+  return trimmed.endsWith('/api') ? trimmed.slice(0, -4) : trimmed;
 }
 
 function isLoopbackHost(hostname: string): boolean {

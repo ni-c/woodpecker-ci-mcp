@@ -6,9 +6,12 @@ import {
   confirmed,
   connect,
   jsonOf,
+  logLine,
+  PIPELINE_NUMBER,
   pipelineFixture,
   REPO_ID,
   repoFixture,
+  STEP_ID,
   stubFetch,
   textOf,
   tokenOf,
@@ -63,7 +66,7 @@ describe('caller-supplied URLs are scheme-checked', () => {
 
   it('still accepts a plain http forge on an internal network', async () => {
     const stub = stubFetch({ 'POST /forges': { json: { id: 1 } } });
-    const result = await call(await connect(), 'create_forge', {
+    const result = await confirmed(await connect(), 'create_forge', {
       type: 'forgejo',
       url: 'http://forge.internal:3000',
       client: 'id',
@@ -106,7 +109,7 @@ describe('unknown fields never reach the API', () => {
 
   it('strips an extra field from a forge creation', async () => {
     const stub = stubFetch({ 'POST /forges': { json: {} } });
-    await call(await connect(), 'create_forge', {
+    await confirmed(await connect(), 'create_forge', {
       type: 'gitea',
       url: 'https://forge.example.com',
       client: 'id',
@@ -652,5 +655,439 @@ describe('a secret value never leaves this server', () => {
       cron_id: 4,
     });
     expect(textOf(result)).toContain('not a credential');
+  });
+});
+
+describe('a forge’s additional_options are credentials too', () => {
+  /**
+   * `GET /forges/{id}` answers an administrator with the raw `Forge`,
+   * `additional_options` included — `server/api/forge.go` upstream calls
+   * `PublicCopy()` only for everyone else — and for a Bitbucket Data Center
+   * forge that map holds the service account Woodpecker clones with, under
+   * `git-username` and `git-password` (`server/services/setup.go`). The exact
+   * key list matched `password` and not `git-password`; the suffix rule does.
+   */
+  const forge = {
+    id: 1,
+    type: 'bitbucket-dc',
+    url: 'https://bitbucket.example.com',
+    additional_options: {
+      'git-username': 'svc-woodpecker',
+      'git-password': 'bb-service-account-secret',
+      'oauth-enable-project-admin-scope': true,
+    },
+  };
+
+  it('redacts git-password from get_forge and keeps the username', async () => {
+    stubFetch({ 'GET /forges/1': { json: forge } });
+    const result = await call(await connect(), 'get_forge', { forge_id: 1 });
+    expect(textOf(result)).not.toContain('bb-service-account-secret');
+    const options = jsonOf(result).additional_options as Record<
+      string,
+      unknown
+    >;
+    expect(options['git-password']).toBe(REDACTED);
+    expect(options['git-username']).toBe('svc-woodpecker');
+    expect(options['oauth-enable-project-admin-scope']).toBe(true);
+  });
+
+  it('redacts it from list_forges', async () => {
+    stubFetch({ 'GET /forges': { json: [forge] } });
+    const result = await call(await connect(), 'list_forges');
+    expect(textOf(result)).not.toContain('bb-service-account-secret');
+  });
+
+  it('redacts it from the answer to create_forge, which echoes the raw forge', async () => {
+    stubFetch({ 'POST /forges': { json: forge } });
+    const result = await confirmed(await connect(), 'create_forge', {
+      type: 'bitbucket-dc',
+      url: 'https://bitbucket.example.com',
+      client: 'id',
+      oauth_client_secret: 'secret',
+    });
+    expect(textOf(result)).not.toContain('bb-service-account-secret');
+  });
+
+  it('redacts a write-model secret should an instance ever echo it', async () => {
+    stubFetch({
+      'PATCH /forges/1': { json: { id: 1, oauth_client_secret: 'echoed' } },
+    });
+    const result = await confirmed(await connect(), 'update_forge', {
+      forge_id: 1,
+      url: 'https://forge.example.com',
+    });
+    expect(textOf(result)).not.toContain('echoed');
+  });
+});
+
+describe('create_forge asks first', () => {
+  /**
+   * `Admins.IsAdmin` upstream compares `strings.ToLower(user.Login)` against
+   * WOODPECKER_ADMIN and nothing else — not the forge the login came from. A
+   * forge somebody else controls, with an account on it spelled like an
+   * administrator's, is an administrator on its first login. `update_forge`
+   * was two-step; the tool that adds one applied on the first call.
+   */
+  const args = {
+    type: 'gitea',
+    url: 'https://forge.example.com',
+    client: 'id',
+    oauth_client_secret: 'secret',
+  };
+
+  it('does not register a forge before it is confirmed', async () => {
+    const stub = stubFetch({ 'POST /forges': { json: { id: 2 } } });
+    const result = await call(await connect(), 'create_forge', args);
+    expect(stub.calls).toHaveLength(0);
+    expect(textOf(result)).toContain('WOODPECKER_ADMIN');
+    expect(textOf(result)).toContain('confirm_token');
+  });
+
+  it('registers it on the second call, with the same arguments', async () => {
+    const stub = stubFetch({ 'POST /forges': { json: { id: 2 } } });
+    const result = await confirmed(await connect(), 'create_forge', args);
+    expect(result.isError).toBeFalsy();
+    expect(stub.calls[0]?.body).toEqual(args);
+  });
+
+  it('binds the token to the URL', async () => {
+    const stub = stubFetch({ 'POST /forges': { json: { id: 2 } } });
+    const client = await connect();
+    const first = await call(client, 'create_forge', args);
+    const other = await call(client, 'create_forge', {
+      ...args,
+      url: 'https://evil.example.net',
+      confirm_token: tokenOf(first),
+    });
+    expect(other.isError).toBe(true);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('binds the token to the client secret', async () => {
+    const stub = stubFetch({ 'POST /forges': { json: { id: 2 } } });
+    const client = await connect();
+    const first = await call(client, 'create_forge', args);
+    const other = await call(client, 'create_forge', {
+      ...args,
+      oauth_client_secret: 'a different secret',
+      confirm_token: tokenOf(first),
+    });
+    expect(other.isError).toBe(true);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('names the forge in the dialog, and nothing from the API', async () => {
+    stubFetch({ 'POST /forges': { json: { id: 2, name: 'FROM-THE-API' } } });
+    const client = await connect({}, 'accept');
+    await call(client, 'create_forge', args);
+    expect(client.prompts[0]).toContain(
+      'gitea forge at https://forge.example.com'
+    );
+    expect(client.prompts[0]).not.toContain('FROM-THE-API');
+  });
+});
+
+describe('an admin grant is bound to the whole call', () => {
+  // The docblock on `guarded` says it: where a call decides *with what*, the
+  // fingerprint of that belongs in the key, or the second call is free to send
+  // a different body. Both admin grants keyed on the flag alone.
+  const stored = { id: 3, login: 'octocat', email: 'octocat@example.com' };
+
+  it('refuses a token that smuggles an email into update_user', async () => {
+    const stub = stubFetch({
+      'GET /users/octocat': { json: stored },
+      'PATCH /users/octocat': { json: stored },
+    });
+    const client = await connect();
+    const first = await call(client, 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      admin: true,
+    });
+    const smuggled = await call(client, 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      admin: true,
+      email: 'attacker@example.net',
+      confirm_token: tokenOf(first),
+    });
+    expect(smuggled.isError).toBe(true);
+    expect(stub.calls.some((c) => c.method === 'PATCH')).toBe(false);
+  });
+
+  it('refuses a token that smuggles an email into create_user', async () => {
+    const stub = stubFetch({ 'POST /users': { json: stored } });
+    const client = await connect();
+    const first = await call(client, 'create_user', {
+      login: 'octocat',
+      admin: true,
+    });
+    const smuggled = await call(client, 'create_user', {
+      login: 'octocat',
+      admin: true,
+      email: 'attacker@example.net',
+      confirm_token: tokenOf(first),
+    });
+    expect(smuggled.isError).toBe(true);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('tells the person when an email travels with the grant', async () => {
+    stubFetch({
+      'GET /users/octocat': { json: stored },
+      'PATCH /users/octocat': { json: stored },
+    });
+    const client = await connect({}, 'accept');
+    await call(client, 'update_user', {
+      login: 'octocat',
+      forge_id: 1,
+      admin: true,
+      email: 'new@example.com',
+    });
+    expect(client.prompts[0]).toContain('email address');
+  });
+});
+
+describe('an error status is decided before its body is read', () => {
+  // A reverse proxy answering 401 with a two-megabyte login page used to
+  // surface as "exceeds the 32 MB ceiling" — after buffering the page — and
+  // said nothing about credentials.
+  it('reports a 401 whose body is a huge login page as a 401', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}`]: {
+        status: 401,
+        text: `<!doctype html><html>${'x'.repeat(2 * 1024 * 1024)}</html>`,
+        contentType: 'text/html',
+        headers: { 'content-length': String(64 * 1024 * 1024) },
+      },
+    });
+    const result = await call(await connect(), 'get_repository', {
+      repo_id: REPO_ID,
+    });
+    const text = textOf(result);
+    expect(text).toContain('HTTP 401');
+    expect(text).toContain('WOODPECKER_TOKEN');
+    expect(text).toContain('(HTML error page omitted)');
+    expect(text).not.toContain('ceiling');
+  });
+
+  it('cuts a huge plain-text error body rather than refusing it', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}`]: { status: 502, text: 'y'.repeat(100_000) },
+    });
+    const result = await call(await connect(), 'get_repository', {
+      repo_id: REPO_ID,
+    });
+    const text = textOf(result);
+    expect(text).toContain('HTTP 502');
+    expect(text).toContain('(truncated)');
+    expect(text.length).toBeLessThan(3000);
+  });
+});
+
+describe('what the instance wrote into an error is cleaned and labelled', () => {
+  const esc = String.fromCharCode(27);
+
+  it('strips terminal escapes from an error body and says whose words they are', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}`]: {
+        status: 403,
+        text: `${esc}[31mUser not authorized${esc}[0m`,
+      },
+    });
+    const result = await call(await connect(), 'get_repository', {
+      repo_id: REPO_ID,
+    });
+    const text = textOf(result);
+    // Characters, not sequences: the ESC goes, `[31m` stays as harmless text.
+    expect(text).not.toContain(esc);
+    expect(text).toContain('(untrusted text from the instance): ');
+    expect(text).toContain('User not authorized');
+  });
+
+  it('cleans and cuts a content-type header before quoting it', async () => {
+    stubFetch({
+      'GET /repos': {
+        text: 'not json',
+        contentType: `text/plain${esc}[1A${'x'.repeat(5000)}`,
+      },
+    });
+    const result = await call(await connect(), 'list_repositories', {
+      scope: 'instance',
+    });
+    const text = textOf(result);
+    expect(result.isError).toBe(true);
+    expect(text).not.toContain(esc);
+    expect(text).toContain('(truncated)');
+    expect(text.length).toBeLessThan(1500);
+  });
+});
+
+describe('a "__proto__" key from the instance is data', () => {
+  // Legal JSON, and an own property after JSON.parse. Assigning it into a
+  // copy sets the copy's prototype instead and drops the field.
+  it('is carried through get_repository as a field', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}`]: {
+        json: JSON.parse(`{"id": ${REPO_ID}, "__proto__": {"admin": true}}`),
+      },
+    });
+    const result = await call(await connect(), 'get_repository', {
+      repo_id: REPO_ID,
+    });
+    expect(result.isError).toBeFalsy();
+    const parsed = jsonOf(result);
+    expect(Object.hasOwn(parsed, '__proto__')).toBe(true);
+    expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+  });
+});
+
+describe('text from the repository is cleaned in both channels', () => {
+  const esc = String.fromCharCode(27);
+  const rlo = String.fromCodePoint(0x202e);
+
+  it('drops escape sequences and bidi overrides from a commit message', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}/pipelines/7`]: {
+        json: pipelineFixture({
+          message: `fix${esc}[1A${rlo}: the thing`,
+          workflows: [],
+        }),
+      },
+    });
+    const result = await call(await connect(), 'get_pipeline', {
+      repo_id: REPO_ID,
+      number: 7,
+    });
+    const pipeline = (
+      result.structuredContent as { pipeline: { message: string } }
+    ).pipeline;
+    expect(pipeline.message).toBe('fix[1A: the thing');
+    expect(textOf(result)).not.toContain(esc);
+    expect(textOf(result)).not.toContain(rlo);
+  });
+
+  it('redacts credentials embedded in a URL field', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}`]: {
+        json: repoFixture({
+          clone_url: 'https://bot:hunter2@forge.example.com/acme/widgets.git',
+        }),
+      },
+    });
+    const result = await call(await connect(), 'get_repository', {
+      repo_id: REPO_ID,
+    });
+    expect(textOf(result)).not.toContain('hunter2');
+    expect(jsonOf(result).clone_url).toBe(
+      'https://(redacted)@forge.example.com/acme/widgets.git'
+    );
+  });
+});
+
+describe('get_step_logs survives an exit code that is not an integer', () => {
+  // The output schema promises `exit_code` as an integer and the SDK enforces
+  // it on the client's side of every successful call — so an exit entry
+  // reading "1.5" used to fail the whole answer, log included.
+  it.each(['1.5', '1e20', '', 'abc', '99999999999'])(
+    'answers without an exit code for %o',
+    async (code) => {
+      stubFetch({
+        [`GET /repos/${REPO_ID}/logs/${PIPELINE_NUMBER}/${STEP_ID}`]: {
+          json: [logLine(0, 'build output\n'), logLine(1, code, 2)],
+        },
+      });
+      const result = await call(await connect(), 'get_step_logs', {
+        repo_id: REPO_ID,
+        number: PIPELINE_NUMBER,
+        step_id: STEP_ID,
+      });
+      expect(result.isError).toBeFalsy();
+      expect(
+        (result.structuredContent as { exit_code?: number }).exit_code
+      ).toBeUndefined();
+      expect(textOf(result)).toContain('build output');
+      expect(textOf(result)).not.toContain('Exit code');
+    }
+  );
+
+  it('still reports a real exit code', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}/logs/${PIPELINE_NUMBER}/${STEP_ID}`]: {
+        json: [logLine(0, 'failed\n'), logLine(1, '2', 2)],
+      },
+    });
+    const result = await call(await connect(), 'get_step_logs', {
+      repo_id: REPO_ID,
+      number: PIPELINE_NUMBER,
+      step_id: STEP_ID,
+    });
+    expect((result.structuredContent as { exit_code?: number }).exit_code).toBe(
+      2
+    );
+  });
+
+  it('skips a null entry and a numeric data field instead of throwing', async () => {
+    stubFetch({
+      [`GET /repos/${REPO_ID}/logs/${PIPELINE_NUMBER}/${STEP_ID}`]: {
+        json: [null, { line: 0, type: 0, data: 12345 }, logLine(1, 'ok\n')],
+      },
+    });
+    const result = await call(await connect(), 'get_step_logs', {
+      repo_id: REPO_ID,
+      number: PIPELINE_NUMBER,
+      step_id: STEP_ID,
+    });
+    expect(result.isError).toBeFalsy();
+    expect(textOf(result)).toContain('ok');
+  });
+});
+
+describe('an empty 200 is an error the reader can act on', () => {
+  it('names the object it expected rather than a TypeError', async () => {
+    stubFetch({
+      'GET /agents/1': { text: '', contentType: 'application/json' },
+    });
+    const result = await call(await connect(), 'get_agent', { agent_id: 1 });
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('expected a agent object');
+    expect(textOf(result)).not.toContain('Cannot read properties');
+  });
+
+  it('answers a pass-through tool with an empty object', async () => {
+    stubFetch({
+      'GET /queue/info': { text: '', contentType: 'application/json' },
+    });
+    const result = await call(await connect(), 'get_queue_info');
+    expect(result.isError).toBeFalsy();
+    expect(jsonOf(result)).toEqual({});
+  });
+});
+
+describe('caller-supplied maps have a size', () => {
+  it('refuses more than a hundred pipeline variables', async () => {
+    const stub = stubFetch({
+      [`POST /repos/${REPO_ID}/pipelines`]: { json: pipelineFixture() },
+    });
+    const variables: Record<string, string> = {};
+    for (let i = 0; i < 101; i++) variables[`v${i}`] = 'x';
+    const result = await call(await connect(), 'trigger_pipeline', {
+      repo_id: REPO_ID,
+      branch: 'main',
+      variables,
+    });
+    expect(result.isError).toBe(true);
+    expect(stub.calls).toHaveLength(0);
+  });
+
+  it('refuses a forge_id past what an id can be', async () => {
+    // Unbounded, 1e21 became "1e+21" in the query string and in the key a
+    // confirmation is bound to.
+    stubFetch({});
+    const result = await call(await connect(), 'get_user', {
+      login: 'octocat',
+      forge_id: 1e21,
+    });
+    expect(result.isError).toBe(true);
   });
 });
