@@ -325,7 +325,7 @@ parameters.
 | `delete_agent` 🛡👤             | Removes it and invalidates its token                         |
 | `list_forges` 🛡                | Forges this instance authenticates against                   |
 | `get_forge` 🛡                  | One forge; the OAuth secret is never returned                |
-| `create_forge` 🛡               | Adds a forge                                                 |
+| `create_forge` 🛡👤             | Adds a forge — a way to sign in, so it asks first            |
 | `update_forge` 🛡👤             | Changes one — a wrong value locks everyone out               |
 | `delete_forge` 🛡👤             | Removes one                                                  |
 | `get_server_info`              | Version and health. Works without a token                    |
@@ -352,9 +352,9 @@ parameters.
 
 ## Safety
 
-- **Twenty-three operations ask a person.** Every `delete_*`, plus
+- **Twenty-four operations ask a person.** Every `delete_*`, plus
   `move_repository`, `chown_repository`, the whole-instance `repair_repository`,
-  `update_forge`, `pause_queue` and `approve_pipeline` — and six more only in the
+  `create_forge`, `update_forge`, `pause_queue` and `approve_pipeline` — and six more only in the
   direction that escalates: `update_user` granting `admin`, `create_user` creating
   one, `update_repository` granting a `trusted_*` flag or lowering the fork gate
   (`require_approval` down, `visibility` to `public`), `update_secret` overwriting

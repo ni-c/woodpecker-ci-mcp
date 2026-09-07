@@ -65,7 +65,7 @@ async function toolNames(overrides: Partial<Config> = {}): Promise<string[]> {
     client.connect(clientTransport),
   ]);
   const { tools } = await client.listTools();
-  return tools.map((t) => t.name).sort();
+  return tools.map((t) => t.name).toSorted();
 }
 
 afterEach(() => {
@@ -77,16 +77,16 @@ describe('the catalogue', () => {
   // This is what lets the filter validate a name before anything is registered.
   // If it drifts from the code, every error message drifts with it.
   it('is exactly the set of tools the server registers', async () => {
-    expect(await toolNames()).toEqual([...ALL_TOOLS].sort());
+    expect(await toolNames()).toEqual(ALL_TOOLS.toSorted());
   });
 
   it('matches the registered set in read-only mode too', async () => {
-    expect(await toolNames({ readOnly: true })).toEqual([...READ_TOOLS].sort());
+    expect(await toolNames({ readOnly: true })).toEqual(READ_TOOLS.toSorted());
   });
 
   it('splits into read and write with nothing left over', () => {
-    expect([...READ_TOOLS, ...WRITE_TOOLS].sort()).toEqual(
-      [...ALL_TOOLS].sort()
+    expect([...READ_TOOLS, ...WRITE_TOOLS].toSorted()).toEqual(
+      ALL_TOOLS.toSorted()
     );
     expect(
       READ_TOOLS.filter((t) => (WRITE_TOOLS as readonly string[]).includes(t))
@@ -256,7 +256,7 @@ describe('the essential preset', () => {
 
   it('is what allowTools=essential selects', async () => {
     expect(await toolNames({ allowTools: 'essential' })).toEqual(
-      [...ESSENTIAL_TOOLS].sort()
+      ESSENTIAL_TOOLS.toSorted()
     );
   });
 });

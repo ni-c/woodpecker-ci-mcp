@@ -8,7 +8,7 @@ import {
   WoodpeckerApiError,
 } from './api.js';
 
-import { redactSensitive } from './normalize.js';
+import { redactSensitive, upstreamText } from './normalize.js';
 
 /**
  * Ceiling on what one tool result may add to the model's context.
@@ -297,7 +297,7 @@ function shortenableStrings(root: unknown): StringSlot[] {
     }
   };
   visit(root);
-  return found.sort((a, b) => b.value.length - a.value.length);
+  return found.toSorted((a, b) => b.value.length - a.value.length);
 }
 
 type ArraySlot = { array: unknown[]; path: string };
@@ -349,7 +349,10 @@ export function budgetedJson(data: unknown): string {
  * shortening happens on the object and the serialization is derived from it.
  */
 export function budget(data: unknown): Record<string, unknown> {
-  const redacted = redactSensitive(data);
+  // An endpoint that answered 200 with nothing — `request` maps an empty body
+  // to `undefined` — is an empty object here, not a `Buffer.byteLength` crash
+  // three lines down that names no tool and no endpoint.
+  const redacted = redactSensitive(data === undefined ? {} : data);
   let rendered = JSON.stringify(redacted, null, 2);
   if (byteLength(rendered) <= MAX_RESULT_BYTES) {
     // Wrapped when it is not already an object. A schema whose root is an
@@ -375,10 +378,11 @@ export function budget(data: unknown): Record<string, unknown> {
     if (slots.length === 0) break;
     for (const slot of slots.slice(0, batch)) {
       const omitted = slot.value.length - MAX_STRING_LENGTH;
-      // The cast is safe either way round: `key` is a number exactly when
-      // `container` is the array it was read from.
-      (slot.container as Record<string | number, unknown>)[slot.key] =
-        `${slot.value.slice(0, MAX_STRING_LENGTH)}… (${omitted} more characters omitted)`;
+      setOwn(
+        slot.container,
+        slot.key,
+        `${slot.value.slice(0, MAX_STRING_LENGTH)}… (${omitted} more characters omitted)`
+      );
     }
     rendered = JSON.stringify(copy, null, 2);
     if (byteLength(rendered) <= MAX_RESULT_BYTES) {
@@ -387,13 +391,16 @@ export function budget(data: unknown): Record<string, unknown> {
     batch *= 2;
   }
 
-  const dropped: Record<string, { shown: number; total: number }> = {};
+  // A Map, because the path is built from the backend's own keys: an array
+  // under a `"__proto__"` key would be recorded as the prototype of a plain
+  // object rather than as an entry in it.
+  const dropped = new Map<string, { shown: number; total: number }>();
   for (let round = 0; round < MAX_SHRINK_ROUNDS; round++) {
     const slot = longestArray(copy);
     if (slot === undefined) break;
-    const total = dropped[slot.path]?.total ?? slot.array.length;
+    const total = dropped.get(slot.path)?.total ?? slot.array.length;
     slot.array.length = Math.floor(slot.array.length / 2);
-    dropped[slot.path] = { shown: slot.array.length, total };
+    dropped.set(slot.path, { shown: slot.array.length, total });
     const trimmed = withTruncationNote(copy, dropped);
     rendered = JSON.stringify(trimmed, null, 2);
     if (byteLength(rendered) <= MAX_RESULT_BYTES) {
@@ -416,23 +423,64 @@ export function budget(data: unknown): Record<string, unknown> {
 export class ResultTooLargeError extends Error {}
 
 /**
+ * Writes a shortened string back into the slot it was read from.
+ *
+ * As an own property, whatever the key is called. `container[key] = value`
+ * with a key of `"__proto__"` — an own property after `JSON.parse`, and a
+ * key the backend chooses — does not replace the string: it tries to set the
+ * prototype, a string is not an object, and nothing changes. The slot then
+ * came up again on every round, a thousand times, before the loop gave up.
+ */
+function setOwn(
+  container: Record<string, unknown> | unknown[],
+  key: string | number,
+  value: string
+): void {
+  if (Array.isArray(container)) {
+    container[key as number] = value;
+    return;
+  }
+  Object.defineProperty(container, key, {
+    value,
+    enumerable: true,
+    configurable: true,
+    writable: true,
+  });
+}
+
+/**
  * Attaches the record of what was dropped, first, so it is read before the data
  * it describes.
+ *
+ * Merged with a `truncated` the tool already put there — `get_pipeline_config`
+ * reports the files it did not read under that key — rather than replacing
+ * it: the two say different things, and the earlier one is the one a reader
+ * would otherwise lose without being told.
  */
 function withTruncationNote(
   data: unknown,
-  dropped: Record<string, { shown: number; total: number }>
+  dropped: Map<string, { shown: number; total: number }>
 ): unknown {
-  const truncated = {
+  const truncated: Record<string, unknown> = {
     note:
       'Entries were dropped to stay inside the result size budget. Narrow the ' +
       'request — by page, per_page or a filter — to see the rest.',
-    lists: dropped,
+    lists: Object.fromEntries(dropped),
   };
   if (data === null || typeof data !== 'object' || Array.isArray(data)) {
     return { truncated, data };
   }
-  return { truncated, ...(data as Record<string, unknown>) };
+  const { truncated: earlier, ...rest } = data as Record<string, unknown>;
+  if (
+    earlier !== null &&
+    typeof earlier === 'object' &&
+    !Array.isArray(earlier)
+  ) {
+    Object.assign(truncated, earlier);
+  } else if (earlier !== undefined) {
+    truncated.earlier = earlier;
+  }
+  return { truncated, ...rest };
 }
 
 /** {@link budgetedJson}, wrapped as a tool result. */
@@ -452,19 +500,20 @@ const MAX_ERROR_BODY_LENGTH = 2000;
  *
  * Woodpecker's error bodies are plain text (`User not authorized`), but a proxy
  * or WAF in front of it answers with an HTML page, which is pure noise here.
+ * What is kept is cleaned of control characters, cut, and labelled as the
+ * instance's words: the body of a 502 is written by whatever answered, which
+ * on a mistyped `WOODPECKER_URL` is somebody else's server.
  */
 export function sanitizeErrorBody(body: string): string {
   const trimmed = body.trim();
+  if (trimmed === '') return '';
   // Anything markup-shaped: a reverse proxy's error page or a WAF block page.
   // The check is deliberately loose — an XML declaration, a leading comment or
   // a doctype followed by a newline are all the same thing here.
   if (/^(<!doctype|<html[\s>]|<\?xml|<!--)/i.test(trimmed)) {
     return '(HTML error page omitted)';
   }
-  if (trimmed.length > MAX_ERROR_BODY_LENGTH) {
-    return `${trimmed.slice(0, MAX_ERROR_BODY_LENGTH)}… (truncated)`;
-  }
-  return trimmed;
+  return `(untrusted text from the instance): ${upstreamText(trimmed, MAX_ERROR_BODY_LENGTH)}`;
 }
 
 /**

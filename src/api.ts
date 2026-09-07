@@ -9,6 +9,7 @@ import {
   missingConfigMessage,
   type Config,
 } from './config.js';
+import { upstreamText } from './normalize.js';
 
 const REQUEST_TIMEOUT_MS = 30_000;
 
@@ -22,6 +23,20 @@ const REQUEST_TIMEOUT_MS = 30_000;
  * a string.
  */
 export const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+/**
+ * Ceiling on the body of an *error* response, and a different kind of ceiling.
+ *
+ * A success body past its limit is refused, because a cut JSON document is not
+ * a smaller answer. An error body is read for its first sentence — Woodpecker
+ * says `User not authorized` in plain text — and `sanitizeErrorBody` shows at
+ * most 2 000 characters of it anyway. So this one *cuts* instead of refusing,
+ * and it is decided by the status before a byte is read: a reverse proxy that
+ * answers 401 with a two-megabyte login page used to surface as "the answer
+ * exceeds the 32 MB ceiling" — the size, not the status, and no word about
+ * credentials — after buffering the whole page.
+ */
+export const MAX_ERROR_BODY_BYTES = 16 * 1024;
 
 export class WoodpeckerApiError extends Error {
   constructor(
@@ -65,8 +80,11 @@ function formatLimit(bytes: number): string {
  */
 export class UnexpectedContentTypeError extends Error {
   constructor(path: string, contentType: string) {
+    // The header is the instance's — or the proxy's — text, up to the 16 kB
+    // a header may carry, control characters included. Cleaned and cut like
+    // an error body, because it lands in the same place: the model's context.
     super(
-      `Woodpecker answered ${path} with "${contentType || 'no content type'}" ` +
+      `Woodpecker answered ${path} with "${upstreamText(contentType, 80) || 'no content type'}" ` +
         'instead of JSON. Woodpecker serves its web UI from the same origin and ' +
         'falls back to it for unrouted paths, so an HTML answer with HTTP 200 ' +
         'usually means WOODPECKER_URL points at something other than the ' +
@@ -166,17 +184,29 @@ export class WoodpeckerApi {
         } as UndiciRequestInit)
       : await fetch(url, init);
 
+    const prefix = options.root ? '' : '/api';
+
+    // The status decides how the body is read, so it is looked at first. An
+    // error body is cut at a small ceiling rather than refused at the large
+    // one: what matters about a 401 is that it is a 401.
+    if (!response.ok) {
+      const text = await readCapped(
+        response as unknown as Response,
+        MAX_ERROR_BODY_BYTES,
+        path,
+        prefix,
+        { cut: true }
+      );
+      throw new WoodpeckerApiError(response.status, text, method, path);
+    }
+
     const limit = options.maxBytes ?? MAX_RESPONSE_BYTES;
     const text = await readCapped(
       response as unknown as Response,
       limit,
       path,
-      options.root ? '' : '/api'
+      prefix
     );
-
-    if (!response.ok) {
-      throw new WoodpeckerApiError(response.status, text, method, path);
-    }
 
     return {
       body: text,
@@ -235,15 +265,21 @@ export class WoodpeckerApi {
  * Both halves matter: `content-length` catches an oversized answer before a
  * single byte is read, and the streaming count catches a chunked response,
  * which declares no length at all. Log endpoints are chunked.
+ *
+ * With `cut`, the ceiling truncates instead of refusing: the first `maxBytes`
+ * are kept, the rest is cancelled unread. That is the right shape for an
+ * error body and the wrong one for anything that has to parse — which is why
+ * it is an option rather than the behaviour.
  */
 async function readCapped(
   response: Response,
   maxBytes: number,
   path: string,
-  prefix: string
+  prefix: string,
+  options: { cut?: boolean } = {}
 ): Promise<string> {
   const declared = Number(response.headers.get('content-length'));
-  if (Number.isFinite(declared) && declared > maxBytes) {
+  if (!options.cut && Number.isFinite(declared) && declared > maxBytes) {
     // Nothing has been read yet, so the body can simply be discarded.
     await response.body?.cancel();
     throw new ResponseTooLargeError(`${prefix}${path}`, maxBytes);
@@ -260,6 +296,11 @@ async function readCapped(
     if (done) break;
     if (value === undefined) continue;
     if (total + value.byteLength > maxBytes) {
+      if (options.cut) {
+        chunks.push(value.subarray(0, maxBytes - total));
+        await reader.cancel();
+        break;
+      }
       await reader.cancel();
       throw new ResponseTooLargeError(`${prefix}${path}`, maxBytes);
     }

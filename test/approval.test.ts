@@ -20,13 +20,6 @@ describe('approval through the client', () => {
     trusted_network: true,
   };
 
-  function routes() {
-    return stubFetch({
-      'GET /repos/42': { json: repoFixture() },
-      'PATCH /repos/42': { json: repoFixture({ trusted: { network: true } }) },
-    });
-  }
-
   it('asks the user, and goes ahead once they accept', async () => {
     const { calls } = routes();
     const client = await connect({}, 'accept');
@@ -94,3 +87,10 @@ describe('approval through the client', () => {
     expect(calls.some((c) => c.method === 'PATCH')).toBe(false);
   });
 });
+
+function routes() {
+  return stubFetch({
+    'GET /repos/42': { json: repoFixture() },
+    'PATCH /repos/42': { json: repoFixture({ trusted: { network: true } }) },
+  });
+}

@@ -1,7 +1,7 @@
 # Asking a person
 
-Twenty-three of the 71 tools do something a CI server does not undo, or hand
-somebody more reach than they had. All twenty-three **ask a person first**.
+Twenty-four of the 71 tools do something a CI server does not undo, or hand
+somebody more reach than they had. All twenty-four **ask a person first**.
 
 Not a `confirm: true` argument the model can set. Not a token the model reads out
 of its own previous result. A dialog, raised through [MCP
@@ -23,7 +23,7 @@ answer comes back, nothing happens.
 | every `delete_*` | always |
 | `move_repository` · `chown_repository` | always |
 | `repair_repository` | only at `scope: instance` |
-| `update_forge` · `pause_queue` · `approve_pipeline` | always |
+| `create_forge` · `update_forge` · `pause_queue` · `approve_pipeline` | always |
 | `update_user` | only when it grants `admin` |
 | `create_user` | only when it creates an `admin` |
 | `update_repository` | only when it grants a `trusted_*` flag, lowers `require_approval`, or sets `visibility` to `public` |
@@ -53,6 +53,13 @@ that in its own reasoning while the tool that performs the transfer did not ask.
 added, the same privilege by the same flag had a dialog in front of one of them and
 not the other — and the description advertised the gap: “which is how you make
 someone an admin before they first log in.”
+
+`create_forge` is asked about for what a forge *is*: a way to sign in. Woodpecker
+decides who is an administrator by comparing the login name against
+`WOODPECKER_ADMIN` — the login alone, not the forge it came from — so an account
+on a newly added forge spelled like an administrator's is an administrator on its
+first login. `update_forge` asked; the tool that adds a forge applied on the first
+call until 0.3.1.
 
 `pause_queue` is on the list for a different reason from the rest. It is
 reversible, but it is instance-wide and silent: nothing tells the people whose

@@ -1,6 +1,6 @@
 {
   "name": "@ni-c/woodpecker-ci-mcp",
-  "version": "0.2.0",
+  "version": "0.3.1",
   "mcpName": "io.github.ni-c/woodpecker-ci-mcp",
   "description": "MCP server for Woodpecker CI: read repositories, pipelines and logs, and drive builds, secrets and crons",
   "keywords": [
@@ -54,7 +54,7 @@
   },
   "dependencies": {
     "@modelcontextprotocol/server": "^2.0.0",
-    "mcp-approval": "^0.8.0",
+    "mcp-approval": "^0.8.2",
     "mcp-internal-hosts": "^0.2.1",
     "mcp-tool-allowlist": "^0.2.1",
     "undici": "^8.10.0",

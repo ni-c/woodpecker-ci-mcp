@@ -55,6 +55,30 @@ describe('ELICITATION', () => {
     }
   });
 
+  it('quotes a short word, so a typo is readable', () => {
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    expect(() => loadConfig(env({ ELICITATION: 'ture' }))).toThrow('exit');
+    expect(String(error.mock.calls[0]?.[0])).toContain('"ture"');
+  });
+
+  it('never echoes a token pasted into it', () => {
+    // ELICITATION sits one line below WOODPECKER_TOKEN in every Compose
+    // file, and this message goes to the client's log.
+    const jwt = `eyJhbGciOiJIUzI1NiJ9.${'a'.repeat(60)}.${'b'.repeat(40)}`;
+    const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+    vi.spyOn(process, 'exit').mockImplementation((() => {
+      throw new Error('exit');
+    }) as never);
+    expect(() => loadConfig(env({ ELICITATION: jwt }))).toThrow('exit');
+    const message = String(error.mock.calls[0]?.[0]);
+    expect(message).not.toContain('eyJ');
+    expect(message).not.toContain('aaaa');
+    expect(message).toContain(`${jwt.length}-character`);
+  });
+
   it('has already wiped the credential by the time it can exit', () => {
     // parseElicitation sits *after* the delete on purpose. An exit above it
     // would leave the credential in the environment for whatever a crash
@@ -218,6 +242,21 @@ describe('normalizeServerRoot', () => {
     expect(normalizeServerRoot('https://example.com/woodpecker')).toBe(
       'https://example.com/woodpecker'
     );
+  });
+
+  it('trims an /api suffix behind trailing slashes, in that order', () => {
+    expect(normalizeServerRoot('https://ci.example.com/api/')).toBe(
+      'https://ci.example.com'
+    );
+  });
+
+  it('is linear on a long run of slashes that is not at the end', () => {
+    // `/\/+$/` tried the run from every position and backtracked through
+    // every length at each. Operator input only — but it is one line.
+    const url = `https://ci.example.com/${'/'.repeat(200_000)}a`;
+    const started = performance.now();
+    expect(normalizeServerRoot(url)).toBe(url);
+    expect(performance.now() - started).toBeLessThan(200);
   });
 });
 

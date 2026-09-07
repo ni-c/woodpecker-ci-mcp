@@ -402,6 +402,7 @@ const CASES: Record<string, Case> = {
     },
     expect: 'POST /forges',
     reply: { json: forge },
+    guarded: true,
   },
   update_forge: {
     args: { forge_id: 1, url: 'https://forge.example.com' },
@@ -446,7 +447,7 @@ afterEach(() => {
 
 describe('every tool in the catalogue', () => {
   it('has a smoke case', () => {
-    expect(Object.keys(CASES).sort()).toEqual([...ALL_TOOLS].sort());
+    expect(Object.keys(CASES).toSorted()).toEqual(ALL_TOOLS.toSorted());
   });
 
   it.each(Object.entries(CASES))(

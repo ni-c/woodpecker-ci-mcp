@@ -584,12 +584,16 @@ Parameters: `forge_id`.
 
 ### `create_forge`
 
-🛡 — Registers an additional forge. The OAuth application has to exist on the
-forge side first, with this Woodpecker as its callback. `url` and `oauth_host`
-must be absolute http(s) URLs.
+🛡👤 — Registers an additional forge. Two-step because a forge is a way to sign
+in, and Woodpecker decides who is an administrator by login name alone
+(`WOODPECKER_ADMIN` is matched against the login, not the forge): an account on
+the new forge spelled like an administrator's is an administrator on its first
+login. The OAuth application has to exist on the forge side first, with this
+Woodpecker as its callback. `url` and `oauth_host` must be absolute http(s)
+URLs.
 
 Parameters: `type`, `url`, `client`, `oauth_client_secret`, `oauth_host`,
-`skip_verify`.
+`skip_verify`, `confirm_token`.
 
 ### `update_forge`
 

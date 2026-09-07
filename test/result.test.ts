@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { WoodpeckerApiError } from '../src/api.js';
-import { REDACTED } from '../src/normalize.js';
+import { REDACTED, scrubText, upstreamText } from '../src/normalize.js';
 import {
   budgetedJson,
   ResultTooLargeError,
@@ -240,14 +240,142 @@ describe('sanitizeErrorBody', () => {
     );
   });
 
-  it('keeps the plain text Woodpecker really sends', () => {
+  it('keeps the plain text Woodpecker really sends, and says whose it is', () => {
     expect(sanitizeErrorBody('  User not authorized ')).toBe(
-      'User not authorized'
+      '(untrusted text from the instance): User not authorized'
     );
+  });
+
+  it('says nothing at all for an empty body', () => {
+    // A 404 with no body must not become a label with nothing after it.
+    expect(sanitizeErrorBody('')).toBe('');
+    expect(sanitizeErrorBody('  \n ')).toBe('');
   });
 
   it('truncates an over-long body', () => {
     expect(sanitizeErrorBody('x'.repeat(5000))).toContain('(truncated)');
+  });
+
+  it('strips the terminal escapes a proxy could put in a body', () => {
+    // Built at runtime: an editing tool writes the escape sequence spelled as
+    // text into a file as the raw byte, and the raw byte is what this is about.
+    const esc = String.fromCharCode(27);
+    const cleaned = sanitizeErrorBody(`${esc}[31mdenied${esc}[0m`);
+    expect(cleaned).not.toContain(esc);
+    expect(cleaned).toContain('denied');
+  });
+});
+
+describe('upstreamText', () => {
+  it('trims, cleans and cuts what the instance sent', () => {
+    const rlo = String.fromCodePoint(0x202e);
+    expect(upstreamText(`  text/${rlo}html  `)).toBe('text/html');
+    expect(upstreamText('x'.repeat(300), 80)).toBe(
+      `${'x'.repeat(80)}… (truncated)`
+    );
+  });
+});
+
+describe('scrubText', () => {
+  it('redacts credentials embedded in a URL and keeps the rest of it', () => {
+    expect(scrubText('https://bot:hunter2@forge.example.com/a/b.git')).toBe(
+      'https://(redacted)@forge.example.com/a/b.git'
+    );
+    // Documented false positive: a user with no password is redacted too.
+    // Losing `git` from an ssh URL costs nothing; missing `token@` would.
+    expect(scrubText('ssh://git@forge.example.com/a/b.git')).toBe(
+      'ssh://(redacted)@forge.example.com/a/b.git'
+    );
+    expect(scrubText('git@forge.example.com:a/b.git')).toBe(
+      'git@forge.example.com:a/b.git'
+    );
+  });
+
+  it('stops at the path, so an @ further on is not a credential', () => {
+    expect(scrubText('https://forge.example.com/@scope/pkg')).toBe(
+      'https://forge.example.com/@scope/pkg'
+    );
+  });
+
+  it('is linear on a long authority with no @ in it', { timeout: 2000 }, () => {
+    // The greedy run backtracks once per start, and every start contains
+    // the `/` that ends the run of the one before it.
+    const text = `://${'a'.repeat(200_000)}`;
+    const started = performance.now();
+    expect(scrubText(text)).toBe(text);
+    expect(scrubText(`${'://a'.repeat(50_000)}`)).toHaveLength(200_000);
+    expect(performance.now() - started).toBeLessThan(500);
+  });
+});
+
+describe('budget', () => {
+  it('answers an empty 200 with an empty object rather than a crash', () => {
+    // `request` maps an empty body to undefined; `Buffer.byteLength` of
+    // undefined is a TypeError naming no tool and no endpoint.
+    expect(JSON.parse(budgetedJson(undefined))).toEqual({});
+  });
+
+  it('keeps a truncation note the tool wrote when it adds its own', () => {
+    // get_pipeline_config reports the files it did not read under
+    // `truncated`; dropping array entries afterwards used to replace it.
+    const parsed = JSON.parse(
+      budgetedJson({
+        truncated: { shown: 20, total: 100, note: 'twenty of a hundred' },
+        configs: Array.from({ length: 4000 }, (_, i) => ({
+          name: `step_${i}`,
+          state: 'success',
+        })),
+      })
+    );
+    expect(parsed.truncated.total).toBe(100);
+    expect(parsed.truncated.lists.configs.total).toBe(4000);
+    expect(parsed.configs.length).toBeLessThan(4000);
+  });
+
+  it(
+    'shortens an oversized string under a "__proto__" key instead of spinning',
+    { timeout: 10_000 },
+    () => {
+      // JSON.parse makes it an own property; assignment would have treated
+      // it as the prototype and left the string exactly as long as before,
+      // a thousand rounds in a row.
+      const data = JSON.parse(
+        `{"id": 1, "__proto__": "${'x'.repeat(MAX_RESULT_BYTES + 100)}"}`
+      ) as Record<string, unknown>;
+      const parsed = JSON.parse(budgetedJson(data));
+      expect(Object.hasOwn(parsed, '__proto__')).toBe(true);
+      expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+      expect(parsed['__proto__']).toContain('more characters omitted');
+    }
+  );
+
+  it('shortens an oversized string that sits directly in an array', () => {
+    const parsed = JSON.parse(
+      budgetedJson({ lines: ['short', 'x'.repeat(MAX_RESULT_BYTES + 100)] })
+    );
+    expect(parsed.lines[0]).toBe('short');
+    expect(parsed.lines[1]).toContain('more characters omitted');
+  });
+
+  it('keeps a truncation note that is not an object under "earlier"', () => {
+    const parsed = JSON.parse(
+      budgetedJson({
+        truncated: 'twenty of a hundred files',
+        configs: Array.from({ length: 4000 }, (_, i) => ({ name: `s${i}` })),
+      })
+    );
+    expect(parsed.truncated.earlier).toBe('twenty of a hundred files');
+    expect(parsed.truncated.lists.configs.total).toBe(4000);
+  });
+
+  it('records a dropped array under a "__proto__" key as an entry', () => {
+    const data = JSON.parse(
+      `{"__proto__": ${JSON.stringify(
+        Array.from({ length: 4000 }, (_, i) => ({ name: `step_${i}` }))
+      )}}`
+    ) as Record<string, unknown>;
+    const parsed = JSON.parse(budgetedJson(data));
+    expect(parsed.truncated.lists['__proto__'].total).toBe(4000);
   });
 });
 

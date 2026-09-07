@@ -93,7 +93,119 @@ const SENSITIVE_KEYS = new Set([
   'totp_secret',
 ]);
 
+/**
+ * What a credential-shaped key ends with, once its separators are gone.
+ *
+ * The exact list above was the whole control until 0.3.1, and it missed the
+ * one map Woodpecker hands to an administrator unfiltered: `GET /forges/{id}`
+ * answers an admin with the raw `Forge`, `additional_options` included — and
+ * for a Bitbucket Data Center forge that map holds `git-username` and
+ * `git-password`, the service account Woodpecker clones with
+ * (`server/services/setup.go`, `server/forge/setup/setup.go` upstream).
+ * `password` matched `password`; it did not match `git-password`. A map whose
+ * keys the forge implementation chooses cannot be listed here in advance, so
+ * the rule is the suffix: `git-password`, `gitPassword` and `GIT_PASSWORD`
+ * all normalise to something ending in `password`.
+ *
+ * `key` on its own is not a suffix on purpose — `forge_remote_id`-style names
+ * are fine, but `secret_key` is in the exact list because `…key` alone would
+ * also catch `config_key`, `ssh_key` fingerprints and every `*_key` id.
+ */
+const SENSITIVE_SUFFIXES = [
+  'password',
+  'passwd',
+  'passphrase',
+  'secret',
+  'token',
+  'apikey',
+  'privatekey',
+];
+
+/** Whether a key names something that must not reach the model. */
+export function isSensitiveKey(key: string): boolean {
+  const lower = key.toLowerCase();
+  if (SENSITIVE_KEYS.has(lower)) return true;
+  const bare = lower.replace(/[_-]/g, '');
+  return SENSITIVE_SUFFIXES.some((suffix) => bare.endsWith(suffix));
+}
+
 export const REDACTED = '(redacted by woodpecker-ci-mcp)';
+
+/**
+ * C0 and C1 controls, DEL, and the invisible and direction-changing formatting
+ * characters — the same class `mcp-approval` keeps out of a confirmation
+ * prompt, kept out of every string this server hands to a model.
+ *
+ * Tab and newline stay: they are the structure of a log and of a YAML file.
+ * `\r` stays too, because `stripControlCharacters` in `logs.ts` gives it its
+ * terminal meaning (a rewritten line) before this class runs there.
+ *
+ * Build logs were the only text this applied to until 0.3.1. A commit message,
+ * a branch name, a step's error text and a secret's note are written by the
+ * same people, reach `structuredContent` unescaped, and `ESC[1A` or U+202E in
+ * any of them rewrites what a terminal client shows next to it.
+ */
+const UNSAFE_RANGES: [number, number][] = [
+  [0x00, 0x08],
+  [0x0b, 0x0c],
+  [0x0e, 0x1f],
+  [0x7f, 0x9f],
+  [0xad, 0xad],
+  [0x180e, 0x180e],
+  [0x200b, 0x200f],
+  [0x202a, 0x202e],
+  [0x2060, 0x2064],
+  [0x2066, 0x2069],
+  [0xfeff, 0xfeff],
+];
+
+// Built from code points rather than spelled as escapes: an editing tool that
+// turns `\uXXXX` into the character it names writes a raw NUL into this file,
+// and a raw NUL in a source file is visible only as `Bin` in `git diff --stat`.
+export const UNSAFE_CHARS = new RegExp(
+  `[${UNSAFE_RANGES.map(([from, to]) =>
+    from === to
+      ? String.fromCodePoint(from)
+      : `${String.fromCodePoint(from)}-${String.fromCodePoint(to)}`
+  ).join('')}]`,
+  'g'
+);
+
+/**
+ * Credentials embedded in a URL: everything between `://` and the last `@`
+ * before the path, query or fragment.
+ *
+ * `[^/?#\s]*` cannot run past the next path separator, and every `://` start
+ * contains one, so a string full of `://` is still one linear scan — the
+ * greedy run of one start ends where the next one begins.
+ */
+const URL_CREDENTIALS = /(:\/\/)[^/?#\s]*@/g;
+
+/**
+ * Cleans one string the backend wrote before it is shown to a model.
+ *
+ * Two things, both about what a value can do rather than what it says:
+ * the unsafe character class above, and `scheme://user:password@host`, which
+ * Woodpecker has no reason to store but a forge URL or a clone URL written by
+ * hand could carry. The redaction keeps the URL usable and the credential out.
+ */
+export function scrubText(text: string): string {
+  return text
+    .replace(UNSAFE_CHARS, '')
+    .replace(URL_CREDENTIALS, '$1(redacted)@');
+}
+
+/**
+ * Text the instance sent, made safe for an error message.
+ *
+ * Trimmed, scrubbed, cut to `max` characters — an error body, a header value
+ * or anything else a response carries is written by the instance, by a proxy
+ * in front of it, or by whoever a mistyped `WOODPECKER_URL` landed on.
+ */
+export function upstreamText(text: string, max = 200): string {
+  const clean = scrubText(text).trim();
+  return clean.length > max ? `${clean.slice(0, max)}… (truncated)` : clean;
+}
 
 /**
  * What a secret looks like from the outside.
@@ -116,27 +228,33 @@ export function redactSecret(secret: Json): Json {
 }
 
 /**
- * Replaces credential-shaped fields anywhere in a response.
+ * Replaces credential-shaped fields anywhere in a response, and cleans every
+ * other string on the way past.
  *
  * Replaced, not deleted, for the same reason `redactAgent` replaces: an absent
  * field reads as "there is no such credential", which sends the reader looking
  * for a bug that is not there. Values that are already a redaction marker, and
  * non-string values, are left alone.
+ *
+ * Built with `Object.fromEntries` rather than by assignment: a response object
+ * with a `"__proto__"` key — legal JSON, and an own property after
+ * `JSON.parse` — would otherwise be *assigned* into the copy, which sets the
+ * copy's prototype and drops the field, instead of being carried as data.
  */
 export function redactSensitive<T>(data: T): T {
   if (Array.isArray(data)) {
     return data.map((entry) => redactSensitive(entry)) as T;
   }
+  if (typeof data === 'string') return scrubText(data) as T;
   if (data === null || typeof data !== 'object') return data;
-  const result: Json = {};
-  for (const [key, value] of Object.entries(data as Json)) {
-    if (SENSITIVE_KEYS.has(key.toLowerCase()) && typeof value === 'string') {
-      result[key] = value.startsWith('(redacted') ? value : REDACTED;
-      continue;
-    }
-    result[key] = redactSensitive(value);
-  }
-  return result as T;
+  return Object.fromEntries(
+    Object.entries(data as Json).map(([key, value]) => {
+      if (isSensitiveKey(key) && typeof value === 'string') {
+        return [key, value.startsWith('(redacted') ? value : REDACTED];
+      }
+      return [key, redactSensitive(value)];
+    })
+  ) as T;
 }
 
 /**

@@ -11,7 +11,7 @@ import {
 
 import { query } from '../api.js';
 import { READ_ONLY } from './annotations.js';
-import { fingerprint } from '../resource-key.js';
+import { fingerprint, identifier } from '../resource-key.js';
 import { guarded } from '../guard.js';
 import { listOf } from '../normalize.js';
 import {
@@ -27,13 +27,21 @@ import type { ToolContext } from './context.js';
  * The forges Woodpecker authenticates against.
  *
  * This is the deepest administrative surface in the API — the OAuth
- * configuration that every login and every repository read depends on — so both
- * mutating tools that can break an instance beyond the reach of its own UI
- * (update and delete) are two-step.
+ * configuration that every login and every repository read depends on — so all
+ * three mutating tools are two-step. Update and delete because they can break
+ * an instance beyond the reach of its own UI; create because a forge is a way
+ * to sign in, and Woodpecker decides who is an administrator by login name
+ * alone (`Admins.IsAdmin` compares `strings.ToLower(user.Login)` against
+ * `WOODPECKER_ADMIN`, without the forge). A forge somebody else controls, with
+ * an account on it spelled like an administrator's, is an administrator on its
+ * first login. `update_forge` asked; the tool that adds one did not.
  *
  * The OAuth client secret is write-only in practice: the read model (`Forge`)
  * has no such field, only the write model (`ForgeWithOAuthClientSecret`) does,
- * so it goes in and never comes back out.
+ * so it goes in and never comes back out. What an administrator *does* get back
+ * is `additional_options`, raw — for a Bitbucket Data Center forge that is the
+ * service account's `git-password` — which is why `isSensitiveKey` matches on
+ * the suffix and not on a list.
  */
 const forgeTypeParam = z
   .enum([
@@ -112,8 +120,11 @@ export function registerForgeTools(
     {
       title: 'Add a forge',
       description:
-        'Registers an additional forge. Admin only. The OAuth application has to ' +
-        'exist on the forge side first, with this Woodpecker as its callback.',
+        'Registers an additional forge. Admin only, and two-step: a forge is a ' +
+        'way to sign in, and Woodpecker grants administrator rights by login ' +
+        'name alone, so an account on the new forge spelled like an admin is ' +
+        'one. The OAuth application has to exist on the forge side first, with ' +
+        'this Woodpecker as its callback.',
       inputSchema: z.object({
         type: forgeTypeParam,
         url: forgeUrlParam,
@@ -138,10 +149,12 @@ export function registerForgeTools(
             'Skip TLS verification towards this forge. Only for a private CA you ' +
               'cannot install; it disables certificate checking entirely.'
           ),
+        confirm_token: confirmTokenParam.optional(),
       }),
       annotations: {
         // Additive, and a widening of the authentication surface rather
-        // than a loss: a second forge is another way to sign in.
+        // than a loss: a second forge is another way to sign in — which is
+        // exactly why it is guarded, not why it is destructive.
         readOnlyHint: false,
         destructiveHint: false,
         idempotentHint: false,
@@ -149,13 +162,43 @@ export function registerForgeTools(
       },
       outputSchema: plain(),
     },
-    async (fields) =>
+    async ({ confirm_token, ...fields }, mcp) =>
       run(async () => {
         const body: Record<string, unknown> = {};
         for (const [key, value] of Object.entries(fields)) {
           if (value !== undefined) body[key] = value;
         }
-        return jsonResult({ forge: await api.post('/forges', body) });
+        // The URL is the caller's, validated as an absolute http(s) URL two
+        // files away and checked again here for what a sentence cannot carry.
+        // Nothing from the API is in this prompt.
+        const url = identifier(fields.url, 'forge URL');
+        return guarded(
+          server,
+          mcp,
+          approval,
+          confirmations,
+          {
+            tool: 'create_forge',
+            targets: [
+              `type:${fields.type}`,
+              `url:${fields.url}`,
+              `client:${fields.client}`,
+              `oauth_host:${fields.oauth_host ?? ''}`,
+              `skip_verify:${fields.skip_verify ?? false}`,
+              `body:${fingerprint(body)}`,
+            ],
+            what: `register a new ${fields.type} forge at ${url}`,
+            consequence:
+              'Everyone with an account on that forge can sign in to this ' +
+              'Woodpecker through it. Woodpecker matches WOODPECKER_ADMIN by ' +
+              'login name alone, so an account there spelled like an ' +
+              'administrator becomes an instance administrator on its first ' +
+              'login, and every repository read through this forge trusts its ' +
+              'URL and client secret.',
+            confirmToken: confirm_token,
+          },
+          async () => jsonResult({ forge: await api.post('/forges', body) })
+        );
       })
   );
 

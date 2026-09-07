@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   assertPathSegment,
+  MAX_ERROR_BODY_BYTES,
   pathSegment,
   query,
   ResponseTooLargeError,
@@ -84,6 +85,19 @@ describe('the API client', () => {
     await expect(api.get('/repos')).rejects.toThrow(/web UI/);
   });
 
+  it('says "no content type" when the header is missing altogether', async () => {
+    // The global Response sets text/plain for a string body; strip it the way
+    // a bare proxy answer would arrive.
+    vi.stubGlobal('fetch', async () => {
+      const response = new Response('plain', { status: 200 });
+      response.headers.delete('content-type');
+      return response;
+    });
+    await expect(new WoodpeckerApi(testConfig()).get('/repos')).rejects.toThrow(
+      /no content type/
+    );
+  });
+
   it('rejects a JSON content type whose body will not parse', async () => {
     stubFetch({
       'GET /repos': { text: 'not json', contentType: 'application/json' },
@@ -145,6 +159,50 @@ describe('the API client', () => {
     await expect(
       new WoodpeckerApi(testConfig()).get('/repos', { maxBytes: 4096 })
     ).rejects.toBeInstanceOf(ResponseTooLargeError);
+  });
+
+  // An error is decided by its status, and its body is read under a ceiling
+  // of its own that cuts rather than refuses: what matters about a 401 is
+  // that it is a 401, and `sanitizeErrorBody` shows the first sentence anyway.
+  it('reports an error status whose body declares more than the ceiling as that status', async () => {
+    stubFetch({
+      'GET /repos': {
+        status: 401,
+        text: 'User not authorized',
+        headers: { 'content-length': String(64 * 1024 * 1024) },
+      },
+    });
+    const error = await new WoodpeckerApi(testConfig())
+      .get('/repos')
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WoodpeckerApiError);
+    expect((error as WoodpeckerApiError).status).toBe(401);
+    expect((error as WoodpeckerApiError).body).toBe('User not authorized');
+  });
+
+  it('cuts a streamed error body at the error ceiling and keeps the status', async () => {
+    const chunk = new Uint8Array(1024).fill(0x79);
+    vi.stubGlobal(
+      'fetch',
+      async () =>
+        new Response(
+          new ReadableStream({
+            start(controller) {
+              for (let i = 0; i < 64; i++) controller.enqueue(chunk);
+              controller.close();
+            },
+          }),
+          { status: 502, headers: { 'content-type': 'text/plain' } }
+        )
+    );
+    const error = await new WoodpeckerApi(testConfig())
+      .get('/repos')
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(WoodpeckerApiError);
+    expect((error as WoodpeckerApiError).status).toBe(502);
+    expect((error as WoodpeckerApiError).body).toHaveLength(
+      MAX_ERROR_BODY_BYTES
+    );
   });
 
   it('sends a JSON body with a content type on writes', async () => {

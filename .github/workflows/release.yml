@@ -16,7 +16,10 @@ jobs:
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
+      # --ignore-scripts: nothing in this tree needs an install hook
+      # (`npm query ':attr(scripts,[postinstall])'` is empty), and a release
+      # run is not where one gets to start.
+      - run: npm ci --ignore-scripts
       - run: npm run lint
       - run: npm run build
       - run: npm run test:coverage
@@ -43,7 +46,10 @@ jobs:
             echo "Tag $GITHUB_REF_NAME does not match package.json version $pkg" >&2
             exit 1
           fi
-      - run: npm ci
+      # --ignore-scripts, and here it matters most: this is the one job that
+      # holds an OIDC token for npm Trusted Publishing, and without the flag
+      # every dependency's install hook would run while it does.
+      - run: npm ci --ignore-scripts
       # --provenance requires a PUBLIC repository.
       - run: npm publish --provenance
 
@@ -126,5 +132,6 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           gh release create "$GITHUB_REF_NAME" \
+            --verify-tag \
             --title "$GITHUB_REF_NAME" \
             --notes-file release-notes.md

@@ -352,12 +352,6 @@ describe('get_pipeline_config bounds what it decodes', () => {
   // result budget runs at the end, after every byte has been base64-decoded and
   // walked by stripControlCharacters — which is the work these bounds exist to
   // stop, and the one thing a single-threaded server cannot get back.
-  const config = (name: string, content: string) => ({
-    name,
-    hash: 'h',
-    data: Buffer.from(content, 'utf8').toString('base64'),
-  });
-
   it('reads at most twenty files and says how many there were', async () => {
     stubFetch({
       [`GET /repos/${REPO_ID}/pipelines/${PIPELINE_NUMBER}/config`]: {
@@ -391,3 +385,11 @@ describe('get_pipeline_config bounds what it decodes', () => {
     expect(parsed.configs[0]?.truncated).toContain('bytes of this');
   });
 });
+
+function config(name: string, content: string) {
+  return {
+    name,
+    hash: 'h',
+    data: Buffer.from(content, 'utf8').toString('base64'),
+  };
+}
