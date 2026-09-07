@@ -406,7 +406,7 @@ First public release.
   object, whose `cause` chain can carry the failed request's headers.
 
 [0.3.1]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.3.1
-[0.3.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.3.0
+[0.3.0]: https://github.com/ni-c/woodpecker-ci-mcp/commit/755ad5ede469da9c7bda633603818dff51b67752
 [0.2.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.2.0
 [0.1.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.1.0
 
