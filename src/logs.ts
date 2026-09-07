@@ -80,7 +80,7 @@ export function decodeLog(
 
   const output = entries
     .filter((entry) => entry.type === undefined || entry.type <= LOG_STDERR)
-    .sort((a, b) => (a.line ?? 0) - (b.line ?? 0));
+    .toSorted((a, b) => (a.line ?? 0) - (b.line ?? 0));
 
   const totalLines = output.length;
   const selected =

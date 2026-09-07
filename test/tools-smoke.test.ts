@@ -446,7 +446,7 @@ afterEach(() => {
 
 describe('every tool in the catalogue', () => {
   it('has a smoke case', () => {
-    expect(Object.keys(CASES).sort()).toEqual([...ALL_TOOLS].sort());
+    expect(Object.keys(CASES).toSorted()).toEqual(ALL_TOOLS.toSorted());
   });
 
   it.each(Object.entries(CASES))(

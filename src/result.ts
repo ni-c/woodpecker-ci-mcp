@@ -297,7 +297,7 @@ function shortenableStrings(root: unknown): StringSlot[] {
     }
   };
   visit(root);
-  return found.sort((a, b) => b.value.length - a.value.length);
+  return found.toSorted((a, b) => b.value.length - a.value.length);
 }
 
 type ArraySlot = { array: unknown[]; path: string };
