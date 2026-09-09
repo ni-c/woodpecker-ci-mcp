@@ -304,11 +304,7 @@ describe('a pipeline the agent really runs', () => {
     expect(step).toBeDefined();
     stepId = step!.id;
 
-    const logs = await asking.call('get_step_logs', {
-      repo_id: repoId,
-      number: pipelineNumber,
-      step_id: stepId,
-    });
+    const logs = await waitForStepLogs(pipelineNumber, stepId);
     expect(logs).toContain('integration');
   }, 420_000);
 
@@ -500,6 +496,38 @@ async function waitForPipeline(number: number): Promise<PipelineView> {
       );
     }
     await new Promise((resolve) => setTimeout(resolve, 5000));
+  }
+}
+
+/**
+ * Waits for a finished step to actually have log lines.
+ *
+ * A pipeline's status flips to "success" when the container exits, but the
+ * agent ships the output over a separate stream that lands a moment later.
+ * Reading once therefore races the upload, and loses often enough to paint
+ * main red: `get_step_logs` answers "(the step produced no output)" for a step
+ * that demonstrably ran `echo`. Polling is the fix; a step that stays empty
+ * for a minute after the pipeline finished is a real failure and says so.
+ */
+async function waitForStepLogs(number: number, step: number): Promise<string> {
+  const deadline = Date.now() + 60_000;
+  for (;;) {
+    const logs = await asking.call('get_step_logs', {
+      repo_id: repoId,
+      number,
+      step_id: step,
+    });
+    if (!logs.includes('(the step produced no output)')) {
+      return logs;
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `step ${step} of pipeline ${number} still had no log lines a minute ` +
+          'after the pipeline reported success. `docker compose logs server` ' +
+          'says whether the agent ever uploaded them.'
+      );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 2000));
   }
 }
 
