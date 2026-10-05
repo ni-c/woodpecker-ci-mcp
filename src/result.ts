@@ -32,6 +32,11 @@ function byteLength(text: string): number {
   return Buffer.byteLength(text, 'utf8');
 }
 
+/** Serialized size of a result envelope, measured as it will be sent. */
+function envelopeBytes(envelope: Record<string, unknown>): number {
+  return byteLength(JSON.stringify(envelope, null, 2));
+}
+
 export function textResult(text: string): CallToolResult {
   return { content: [{ type: 'text', text }] };
 }
@@ -198,16 +203,13 @@ export function budgetedList(
     Object.assign(envelope, options.extra ?? {});
     return envelope;
   };
-  const size = (envelope: Record<string, unknown>): number =>
-    byteLength(JSON.stringify(envelope, null, 2));
-
   let shown = items;
   let envelope = render(shown);
-  while (size(envelope) > MAX_RESULT_BYTES && shown.length > 1) {
+  while (envelopeBytes(envelope) > MAX_RESULT_BYTES && shown.length > 1) {
     shown = shown.slice(0, Math.floor(shown.length / 2));
     envelope = render(shown);
   }
-  if (size(envelope) > MAX_RESULT_BYTES && shown.length === 1) {
+  if (envelopeBytes(envelope) > MAX_RESULT_BYTES && shown.length === 1) {
     // A single entry that does not fit cannot be halved any further.
     envelope = render([]);
     const note = envelope.truncated as { note: string };
