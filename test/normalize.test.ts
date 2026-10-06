@@ -9,6 +9,7 @@ import {
   summarizeRepo,
   summarizeUser,
   summarizeWorkflows,
+  redactSensitive,
 } from '../src/normalize.js';
 import { agentFixture, pipelineFixture, repoFixture } from './harness.js';
 
@@ -104,5 +105,23 @@ describe('the summaries', () => {
     expect(summarizeUser({ id: 1, login: 'octocat', admin: true }).admin).toBe(
       true
     );
+  });
+});
+
+describe('redactSensitive and a "__proto__" key', () => {
+  it('drops it at every depth and nothing else', () => {
+    const out = redactSensitive(
+      JSON.parse(
+        '{"__proto__": {"polluted": true}, "b": 2, "n": {"__proto__": 1, "k": 3},' +
+          ' "a": [{"__proto__": [], "z": 4}], "__pro\\u0000to__": 5, "z": {"__proto__": null}}'
+      ) as object
+    ) as Record<string, unknown>;
+    expect(out).toEqual({ b: 2, n: { k: 3 }, a: [{ z: 4 }], z: {} });
+    expect(JSON.stringify(out)).not.toContain('__proto__');
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect((out as { polluted?: unknown }).polluted).toBeUndefined();
+    const top = redactSensitive(JSON.parse('{"__proto__": null}') as object);
+    expect(top).toEqual({});
+    expect(Object.getPrototypeOf(top)).toBe(Object.prototype);
   });
 });

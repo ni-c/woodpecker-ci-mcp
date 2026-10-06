@@ -236,10 +236,13 @@ export function redactSecret(secret: Json): Json {
  * for a bug that is not there. Values that are already a redaction marker, and
  * non-string values, are left alone.
  *
- * Built with `Object.fromEntries` rather than by assignment: a response object
- * with a `"__proto__"` key — legal JSON, and an own property after
- * `JSON.parse` — would otherwise be *assigned* into the copy, which sets the
- * copy's prototype and drops the field, instead of being carried as data.
+ * A key spelled `"__proto__"` — legal JSON, and an own property after
+ * `JSON.parse` — is dropped, at every depth. The text block would show it, but
+ * the client parses `structuredContent` against a zod schema that builds its
+ * result by assignment, where that name sets a prototype instead of a field, so
+ * the two channels would disagree about the same answer. The name is checked
+ * after scrubbing, so a control character inside it cannot smuggle it past.
+ * The copy is still built with `Object.fromEntries` rather than by assignment.
  */
 export function redactSensitive<T>(data: T): T {
   if (Array.isArray(data)) {
@@ -248,12 +251,14 @@ export function redactSensitive<T>(data: T): T {
   if (typeof data === 'string') return scrubText(data) as T;
   if (data === null || typeof data !== 'object') return data;
   return Object.fromEntries(
-    Object.entries(data as Json).map(([key, value]) => {
-      if (isSensitiveKey(key) && typeof value === 'string') {
-        return [key, value.startsWith('(redacted') ? value : REDACTED];
-      }
-      return [key, redactSensitive(value)];
-    })
+    Object.entries(data as Json)
+      .filter(([key]) => scrubText(key) !== '__proto__')
+      .map(([key, value]) => {
+        if (isSensitiveKey(key) && typeof value === 'string') {
+          return [key, value.startsWith('(redacted') ? value : REDACTED];
+        }
+        return [key, redactSensitive(value)];
+      })
   ) as T;
 }
 

@@ -923,22 +923,29 @@ describe('what the instance wrote into an error is cleaned and labelled', () => 
   });
 });
 
-describe('a "__proto__" key from the instance is data', () => {
-  // Legal JSON, and an own property after JSON.parse. Assigning it into a
-  // copy sets the copy's prototype instead and drops the field.
-  it('is carried through get_repository as a field', async () => {
+describe('a "__proto__" key from the instance is dropped', () => {
+  // Legal JSON, and an own property after JSON.parse. The client's schema
+  // parse of structuredContent would turn it into a prototype assignment and
+  // lose it there only, so the two channels would disagree.
+  it('answers the same in both channels when the instance sends one', async () => {
     stubFetch({
       [`GET /repos/${REPO_ID}`]: {
-        json: JSON.parse(`{"id": ${REPO_ID}, "__proto__": {"admin": true}}`),
+        json: JSON.parse(
+          `{"id": ${REPO_ID}, "__proto__": {"admin": true}, "meta": {"__proto__": 1, "k": 2}}`
+        ),
       },
     });
     const result = await call(await connect(), 'get_repository', {
       repo_id: REPO_ID,
     });
     expect(result.isError).toBeFalsy();
+    expect(textOf(result)).not.toContain('__proto__');
     const parsed = jsonOf(result);
-    expect(Object.hasOwn(parsed, '__proto__')).toBe(true);
+    expect(Object.hasOwn(parsed, '__proto__')).toBe(false);
     expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
+    expect(parsed).toEqual(
+      JSON.parse(JSON.stringify(result.structuredContent))
+    );
   });
 });
 

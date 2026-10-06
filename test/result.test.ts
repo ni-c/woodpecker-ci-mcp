@@ -333,19 +333,14 @@ describe('budget', () => {
   });
 
   it(
-    'shortens an oversized string under a "__proto__" key instead of spinning',
+    'shortens an oversized string under an ordinary key instead of spinning',
     { timeout: 10_000 },
     () => {
-      // JSON.parse makes it an own property; assignment would have treated
-      // it as the prototype and left the string exactly as long as before,
-      // a thousand rounds in a row.
       const data = JSON.parse(
-        `{"id": 1, "__proto__": "${'x'.repeat(MAX_RESULT_BYTES + 100)}"}`
+        `{"id": 1, "note": "${'x'.repeat(MAX_RESULT_BYTES + 100)}"}`
       ) as Record<string, unknown>;
       const parsed = JSON.parse(budgetedJson(data));
-      expect(Object.hasOwn(parsed, '__proto__')).toBe(true);
-      expect(Object.getPrototypeOf(parsed)).toBe(Object.prototype);
-      expect(parsed['__proto__']).toContain('more characters omitted');
+      expect(parsed.note).toContain('more characters omitted');
     }
   );
 
@@ -368,14 +363,14 @@ describe('budget', () => {
     expect(parsed.truncated.lists.configs.total).toBe(4000);
   });
 
-  it('records a dropped array under a "__proto__" key as an entry', () => {
+  it('records a dropped array under an ordinary key as an entry', () => {
     const data = JSON.parse(
-      `{"__proto__": ${JSON.stringify(
+      `{"steps": ${JSON.stringify(
         Array.from({ length: 4000 }, (_, i) => ({ name: `step_${i}` }))
       )}}`
     ) as Record<string, unknown>;
     const parsed = JSON.parse(budgetedJson(data));
-    expect(parsed.truncated.lists['__proto__'].total).toBe(4000);
+    expect(parsed.truncated.lists.steps.total).toBe(4000);
   });
 });
 
