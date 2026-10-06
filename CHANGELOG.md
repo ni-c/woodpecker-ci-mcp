@@ -12,6 +12,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
+## [Unreleased]
+
+### Fixed
+
+- **A `__proto__` key from the instance no longer makes the two channels
+  disagree.** The text block kept it, while the client's schema parse of
+  `structuredContent` turned it into a prototype assignment and lost it. The key
+  is now dropped at every depth, checked after cleaning, so both channels carry
+  the same answer.
+
 ## [0.3.1] - 2026-09-07
 
 ### Security
