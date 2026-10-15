@@ -12,7 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
      last in the file so the link definitions come along. -->
 <!-- #region changelog -->
 
-## [Unreleased]
+## [0.4.0] - 2026-10-15
 
 ### Added
 
@@ -436,6 +436,7 @@ First public release.
 - The fatal-error handler prints the message and stack rather than the error
   object, whose `cause` chain can carry the failed request's headers.
 
+[0.4.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.4.0
 [0.3.1]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.3.1
 [0.3.0]: https://github.com/ni-c/woodpecker-ci-mcp/commit/755ad5ede469da9c7bda633603818dff51b67752
 [0.2.0]: https://github.com/ni-c/woodpecker-ci-mcp/releases/tag/v0.2.0
