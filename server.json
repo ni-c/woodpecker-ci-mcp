@@ -54,6 +54,12 @@
           "description": "Set to true to accept a self-signed certificate from the Woodpecker server (default: false)",
           "isRequired": false,
           "format": "boolean"
+        },
+        {
+          "name": "WOODPECKER_API_PREFIX",
+          "description": "Path of the API below the server root (default: /api; Crow CI 5 and later: /api/v1)",
+          "isRequired": false,
+          "format": "string"
         }
       ]
     },
@@ -100,6 +106,12 @@
           "description": "Set to true to accept a self-signed certificate from the Woodpecker server (default: false)",
           "isRequired": false,
           "format": "boolean"
+        },
+        {
+          "name": "WOODPECKER_API_PREFIX",
+          "description": "Path of the API below the server root (default: /api; Crow CI 5 and later: /api/v1)",
+          "isRequired": false,
+          "format": "string"
         }
       ]
     }

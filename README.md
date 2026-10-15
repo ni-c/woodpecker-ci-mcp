@@ -81,12 +81,18 @@ in the API.
 | `WOODPECKER_ALLOW_TOOLS`  | no       | Comma-separated tool names, `list_*` prefixes, or `essential` for a curated preset |
 | `WOODPECKER_DENY_TOOLS`   | no       | Same syntax; removed from whatever `WOODPECKER_ALLOW_TOOLS` left                   |
 | `WOODPECKER_INSECURE_TLS` | no       | `true` accepts self-signed certificates (scoped to this connection)                |
+| `WOODPECKER_API_PREFIX`   | no       | Path of the API below the root, default `/api`. Crow CI 5 and later: `/api/v1`     |
 | `ELICITATION`             | no       | `false` replaces the approval dialog with the two-call token. **Not prefixed**     |
 
 `WOODPECKER_URL` is the server root, not the API root:
 `https://woodpecker.example.com`, not `https://woodpecker.example.com/api`. Both
 are accepted — the suffix is trimmed — because the Swagger page spells every
 example the long way.
+
+**Crow CI**, a Woodpecker fork, serves its API under `/api/v1` since 5.0: set
+`WOODPECKER_API_PREFIX=/api/v1`. That makes the API reachable, not identical —
+this server speaks the Woodpecker 3 API, and Crow ignores a few of its fields.
+See [Crow CI](https://woodpecker-ci-mcp.ni-c.de/guide/configuration#crow-ci).
 
 > **Use `https://`.** Over plain http the token travels unencrypted; the server
 > prints a warning unless the host is local. For self-signed certificates prefer a

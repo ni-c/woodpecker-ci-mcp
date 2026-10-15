@@ -12,6 +12,7 @@ export const TOKEN = 'test-token';
 export function testConfig(overrides: Partial<Config> = {}): Config {
   return {
     url: SERVER,
+    apiPrefix: '/api',
     token: TOKEN,
     insecureTls: false,
     readOnly: false,
@@ -57,13 +58,14 @@ export interface FetchStub {
 }
 
 /**
- * Replaces global fetch with a router over canned replies.
+ * Replaces global fetch with a router over canned replies. `api` is the API
+ * base the routes are relative to — pass it when the config sets another prefix.
  *
  * A request with no matching route fails the test loudly rather than returning
  * an empty object: a tool that silently queries the wrong path would otherwise
  * pass every assertion about its output.
  */
-export function stubFetch(routes: Routes = {}): FetchStub {
+export function stubFetch(routes: Routes = {}, api: string = API): FetchStub {
   const calls: Recorded[] = [];
   vi.stubGlobal(
     'fetch',
@@ -74,9 +76,9 @@ export function stubFetch(routes: Routes = {}): FetchStub {
       // also accepts `https://woodpecker.example.com.example.net/…`, so a tool
       // that built its URL against the wrong host would be routed as if it had
       // hit the configured one, and the test would pass.
-      const underApi = url.startsWith(`${API}/`);
+      const underApi = url.startsWith(`${api}/`);
       const path = underApi
-        ? url.slice(API.length)
+        ? url.slice(api.length)
         : url.startsWith(`${SERVER}/`)
           ? url.slice(SERVER.length)
           : url;

@@ -5,13 +5,15 @@ import { UNSAFE_CHARS } from './normalize.js';
 export interface Config {
   /**
    * Root URL of the Woodpecker server, e.g. `https://woodpecker.example.com`.
-   * The `/api` prefix is added by the API client — a URL that already ends in
-   * `/api` is accepted and trimmed back.
+   * The API prefix is added by the API client — a URL that already ends in it,
+   * or in `/api`, is accepted and trimmed back.
    *
    * May be undefined together with the token: the server still starts and lists
    * its tools, and every API call then fails with {@link missingConfigMessage}.
    */
   url: string | undefined;
+  /** `WOODPECKER_API_PREFIX`: `/api` unless set, `/api/v1` for Crow CI 5+. */
+  apiPrefix: string;
   token: string | undefined;
   insecureTls: boolean;
   /** When true, only the read tools are registered at all. */
@@ -43,6 +45,8 @@ export function missingConfigMessage(missing: string[]): string {
     'WOODPECKER_TOKEN (a personal access token from your Woodpecker user settings)\n' +
     'Optional: WOODPECKER_READ_ONLY=true to expose only read tools, ' +
     'WOODPECKER_INSECURE_TLS=true to accept self-signed certificates, ' +
+    'WOODPECKER_API_PREFIX for a server whose API is not under /api ' +
+    '(Crow CI 5+: /api/v1), ' +
     'WOODPECKER_ALLOW_TOOLS / WOODPECKER_DENY_TOOLS to narrow the tool list ' +
     '(comma-separated names, "list_*" prefixes, or "essential")'
   );
@@ -99,6 +103,44 @@ export function quoted(raw: string, max = 12): string {
     : `a ${raw.length}-character value`;
 }
 
+export const DEFAULT_API_PREFIX = '/api';
+
+const MAX_API_PREFIX_LENGTH = 64;
+
+/** Fatal on anything but a plain path: the prefix is glued into the URL that carries the token. */
+export function parseApiPrefix(raw: string | undefined): string {
+  const value = raw?.trim() ?? '';
+  if (value === '') return DEFAULT_API_PREFIX;
+  const rule = apiPrefixViolation(value);
+  if (rule !== undefined) {
+    return fail(
+      `WOODPECKER_API_PREFIX ${rule} (got a ${value.length}-character value). ` +
+        'Refusing to start rather than send the token somewhere unintended.'
+    );
+  }
+  return trimTrailingSlashes(value);
+}
+
+function apiPrefixViolation(value: string): string | undefined {
+  if (!value.startsWith('/')) return 'must start with a slash, e.g. /api/v1';
+  const prefix = trimTrailingSlashes(value);
+  if (prefix === '') {
+    return 'must name at least one path segment, e.g. /api or /api/v1';
+  }
+  if (prefix.length > MAX_API_PREFIX_LENGTH) {
+    return `must be at most ${MAX_API_PREFIX_LENGTH} characters long`;
+  }
+  if (!/^[A-Za-z0-9._~/-]+$/.test(prefix)) {
+    return 'may only contain letters, digits, the characters . _ ~ - and slashes';
+  }
+  const segments = prefix.slice(1).split('/');
+  if (segments.includes('')) return 'must not contain an empty segment (//)';
+  if (segments.some((segment) => segment === '.' || segment === '..')) {
+    return 'must not contain a . or .. segment';
+  }
+  return undefined;
+}
+
 /**
  * Reads the configuration from environment variables.
  *
@@ -135,9 +177,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   // After the delete, deliberately: this one can exit the process, and an exit
   // above would leave the token in the environment for whatever runs next.
   const elicitation = parseElicitation(env.ELICITATION);
+  const apiPrefix = parseApiPrefix(env.WOODPECKER_API_PREFIX);
 
   const config: Config = {
     url: undefined,
+    apiPrefix,
     token,
     insecureTls,
     readOnly,
@@ -175,7 +219,18 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     // From `parsed`, not `rawUrl`: normalizeServerRoot only trims slashes and an
     // API suffix, so a query or fragment would survive it and end up glued in
     // front of /api on every request.
-    config.url = normalizeServerRoot(`${parsed.origin}${parsed.pathname}`);
+    config.url = normalizeServerRoot(
+      `${parsed.origin}${parsed.pathname}`,
+      apiPrefix
+    );
+    // Crow CI's API URL pasted into WOODPECKER_URL with the prefix left alone.
+    if (apiPrefix === DEFAULT_API_PREFIX && /\/api\/v\d+$/.test(config.url)) {
+      console.error(
+        'woodpecker-ci-mcp: WARNING: WOODPECKER_URL ends in a versioned API path. ' +
+          'If this is Crow CI 5 or later, set WOODPECKER_API_PREFIX=/api/v1 and ' +
+          'point WOODPECKER_URL at the server root.'
+      );
+    }
   }
 
   const missing = missingConfigKeys(config);
@@ -193,17 +248,31 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
  * page all name the root, but every example request in that page is a full
  * `https://…/api/repos/…` URL — so both spellings arrive here. Keeping only the
  * origin and any path *above* the API prefix means both work, instead of one of
- * them producing `/api/api/repos` and a bare 404.
+ * them producing `/api/api/repos` and a bare 404. Only the path is trimmed, so
+ * `http://api` stays a host.
  */
-export function normalizeServerRoot(url: string): string {
-  // Not `/\/+$/`: a run of slashes that is *not* at the end is tried from
-  // every position and backtracked through every length at each — quadratic
-  // in the run. An index walked back from the end is one pass, and the slice
-  // happens once.
-  let end = url.length;
-  while (end > 0 && url[end - 1] === '/') end--;
-  const trimmed = url.slice(0, end);
-  return trimmed.endsWith('/api') ? trimmed.slice(0, -4) : trimmed;
+export function normalizeServerRoot(
+  url: string,
+  prefix: string = DEFAULT_API_PREFIX
+): string {
+  const authority = url.indexOf('://');
+  const pathStart = url.indexOf('/', authority === -1 ? 0 : authority + 3);
+  if (pathStart === -1) return url;
+  const origin = url.slice(0, pathStart);
+  const path = trimTrailingSlashes(url.slice(pathStart));
+  for (const suffix of [prefix, DEFAULT_API_PREFIX]) {
+    if (path.endsWith(suffix)) {
+      return origin + trimTrailingSlashes(path.slice(0, -suffix.length));
+    }
+  }
+  return origin + path;
+}
+
+/** An index walk, not `/\/+$/`, which is quadratic on a long run of slashes. */
+function trimTrailingSlashes(value: string): string {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end--;
+  return value.slice(0, end);
 }
 
 function isLoopbackHost(hostname: string): boolean {

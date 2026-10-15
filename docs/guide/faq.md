@@ -32,7 +32,9 @@ or reverse proxy in front of the instance answers **HTTP 200 with HTML**, not a
 404. That is why this is a named error rather than a JSON parse failure.
 
 Check that the URL is the one you open in a browser, without `/api` and without a
-path of its own. If it looks right and you are on a VPN or split-DNS network, see
+path of its own. The message names the path it asked for: if that is `/api/…`
+and the server is Crow CI 5 or later, set `WOODPECKER_API_PREFIX=/api/v1` — see
+[Crow CI](/guide/configuration#crow-ci). If it looks right and you are on a VPN or split-DNS network, see
 the DNS note under [Docker](/guide/clients#docker) — a container resolving the
 name against a public resolver gets an address that never answers.
 
@@ -102,6 +104,14 @@ or mount a zoneinfo database into the server container
 Deleting a pipeline takes its logs and step results with it; there is nothing
 left to re-run. That is why `delete_pipeline` [asks a person](/guide/approval). If
 you only want it to stop, `cancel_pipeline` is the reversible one.
+
+## Does it work with Crow CI?
+
+Mostly. Crow CI 5 and later need `WOODPECKER_API_PREFIX=/api/v1`; after that the
+read tools and most write tools behave as they do on Woodpecker — checked
+against Crow 6.10.0. A few writes differ: some fields are ignored without an
+error, three tools are refused, and `move_repository` reports a failure after it
+has moved the repository. [Crow CI](/guide/configuration#crow-ci) lists them.
 
 ## Can I use this against a Woodpecker behind SSO?
 
