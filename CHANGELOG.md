@@ -28,6 +28,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`get_server_info` keeps working once Woodpecker drops the root `/version`
+  and `/healthz`** (#43). Woodpecker 3.19 serves both under `/api` as well and
+  marks the root routes for removal in 4.0. The root is still asked first; on a
+  404 or an HTML answer the call is repeated under the API prefix, still without
+  a token. A server error is not retried.
 - **A host named like the API prefix keeps its name.** `WOODPECKER_URL=http://api`
   was trimmed to `http:/`, because the `/api` suffix was looked for in the whole
   URL rather than in its path.

@@ -59,7 +59,8 @@ it — and says what it is.
 
 **It knows where this API is sharp.** `/version` and `/healthz` sit outside the
 `/api` prefix that the Swagger document claims for them, so `GET /api/version`
-returns the web UI with HTTP 200 rather than a 404; a repository that exists in
+returns the web UI with HTTP 200 rather than a 404 (3.19 adds them under `/api`
+and 4.0 drops the root routes, so `get_server_info` falls back to the prefix); a repository that exists in
 the forge is a 404 here until it is activated; `perPage` above 50 is clamped
 without a word; a cron schedule is five fields, not six; and a secret with no
 event list is refused, because the defaults people expect live in the web UI, not
