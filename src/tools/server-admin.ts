@@ -7,6 +7,11 @@ import { READ_ONLY } from './annotations.js';
 import { jsonResult, run, sentenceResult } from '../result.js';
 import { confirmTokenParam } from '../schema.js';
 import { DEFAULT_API_PREFIX } from '../config.js';
+import {
+  UnexpectedContentTypeError,
+  WoodpeckerApiError,
+  type WoodpeckerApi,
+} from '../api.js';
 import type { ToolContext } from './context.js';
 
 const CROW_DOCS =
@@ -43,6 +48,22 @@ export function serverNote(
   );
 }
 
+/** Root first; under the API prefix only when the root route is gone (Woodpecker 4). */
+async function rootOrPrefixed(
+  api: WoodpeckerApi,
+  path: string
+): Promise<unknown> {
+  try {
+    return await api.get(path, { root: true, anonymous: true });
+  } catch (error) {
+    const gone =
+      error instanceof UnexpectedContentTypeError ||
+      (error instanceof WoodpeckerApiError && error.status === 404);
+    if (!gone) throw error;
+    return api.get(path, { anonymous: true });
+  }
+}
+
 function servesVersionedApi(version: unknown): boolean {
   if (typeof version !== 'string') return false;
   if (version.startsWith('dev-')) return true;
@@ -57,7 +78,8 @@ function servesVersionedApi(version: unknown): boolean {
  * API prefix (`/api`, or `WOODPECKER_API_PREFIX`). The Swagger document lists
  * both under `basePath: "/api"`, but the server registers them one level up — `GET /api/version` falls through to
  * the single-page app and returns the web UI with HTTP 200. Verified against
- * 3.18.0; `api.get(..., { root: true })` is what gets it right.
+ * 3.18.0; `api.get(..., { root: true })` is what gets it right. 3.19 serves
+ * both under `/api` as well and 4.0 drops the root routes, hence the fallback.
  */
 export function registerServerTools(
   server: McpServer,
@@ -83,15 +105,12 @@ export function registerServerTools(
     },
     async () =>
       run(async () => {
-        const version = await api.get('/version', {
-          root: true,
-          anonymous: true,
-        });
+        const version = await rootOrPrefixed(api, '/version');
         // /healthz answers 204 with an empty body when healthy, so there is
         // nothing to parse — reaching this line at all is the result.
         let healthy = true;
         try {
-          await api.get('/healthz', { root: true, anonymous: true });
+          await rootOrPrefixed(api, '/healthz');
         } catch {
           healthy = false;
         }

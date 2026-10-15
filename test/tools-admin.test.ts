@@ -234,6 +234,104 @@ describe('server and queue', () => {
     expect(result).not.toHaveProperty('note');
   });
 
+  it('falls back to the API prefix once the root routes are gone, as in Woodpecker 4', async () => {
+    const html = { text: '<!doctype html>', contentType: 'text/html' };
+    const stub = stubFetch({
+      'GET !/version': html,
+      'GET /version': { json: { version: '4.0.0' } },
+      'GET !/healthz': { status: 404, text: '' },
+      'GET /healthz': { status: 204 },
+    });
+    const result = jsonOf(await call(await connect(), 'get_server_info'));
+    expect(stub.calls.map((c) => c.url)).toEqual([
+      `${SERVER}/version`,
+      `${SERVER}/api/version`,
+      `${SERVER}/healthz`,
+      `${SERVER}/api/healthz`,
+    ]);
+    expect(result.version).toEqual({ version: '4.0.0' });
+    expect(result.healthy).toBe(true);
+    // Still anonymous on the second try: this is the call that has to work
+    // without a token.
+    expect(stub.calls.every((c) => c.headers.authorization === undefined)).toBe(
+      true
+    );
+  });
+
+  it('falls back on a 404 from the root, under a configured prefix', async () => {
+    const stub = stubFetch(
+      {
+        'GET !/version': { status: 404, text: '' },
+        'GET /version': { json: { version: '4.0.0' } },
+        'GET !/healthz': { status: 204 },
+      },
+      `${SERVER}/api/v1`
+    );
+    await call(await connect({ apiPrefix: '/api/v1' }), 'get_server_info');
+    expect(stub.calls.map((c) => c.url)).toEqual([
+      `${SERVER}/version`,
+      `${SERVER}/api/v1/version`,
+      `${SERVER}/healthz`,
+    ]);
+  });
+
+  it('does not fall back when the root answers a server error', async () => {
+    const stub = stubFetch({
+      'GET !/version': { status: 502, text: 'bad gateway' },
+    });
+    const result = await call(await connect(), 'get_server_info');
+    expect(result.isError).toBe(true);
+    expect(stub.calls).toHaveLength(1);
+  });
+
+  it('fails when neither place has /version', async () => {
+    const html = { text: '<!doctype html>', contentType: 'text/html' };
+    stubFetch({ 'GET !/version': html, 'GET /version': html });
+    const result = await call(await connect(), 'get_server_info');
+    expect(result.isError).toBe(true);
+    expect(textOf(result)).toContain('/api/version');
+  });
+
+  it('reports unhealthy without a fallback when /healthz answers a server error', async () => {
+    const stub = stubFetch({
+      'GET !/version': { json: { version: '3.18.0' } },
+      'GET !/healthz': { status: 503, text: 'down' },
+    });
+    const result = jsonOf(await call(await connect(), 'get_server_info'));
+    expect(result.healthy).toBe(false);
+    expect(stub.calls.map((c) => c.url)).not.toContain(`${SERVER}/api/healthz`);
+  });
+
+  it('reports unhealthy when /healthz is in neither place', async () => {
+    stubFetch({
+      'GET !/version': { json: { version: '4.0.0' } },
+      'GET !/healthz': { status: 404, text: '' },
+      'GET /healthz': { status: 404, text: '' },
+    });
+    const result = jsonOf(await call(await connect(), 'get_server_info'));
+    expect(result.healthy).toBe(false);
+  });
+
+  it('builds the Crow note from a /version found under the prefix', async () => {
+    stubFetch(
+      {
+        'GET !/version': { status: 404, text: '' },
+        'GET /version': {
+          json: {
+            source: 'https://codefloe.com/crowci/crow',
+            version: '7.0.0',
+          },
+        },
+        'GET !/healthz': { status: 204 },
+      },
+      `${SERVER}/api/v1`
+    );
+    const result = jsonOf(
+      await call(await connect({ apiPrefix: '/api/v1' }), 'get_server_info')
+    );
+    expect(result.note).toContain('Crow CI');
+  });
+
   it('reports unhealthy rather than failing when /healthz does not answer', async () => {
     stubFetch({
       'GET !/version': { json: { version: '3.18.0' } },

@@ -40,6 +40,8 @@ it under `/api`, which is the default. [Crow CI](/guide/configuration#crow-ci) 5
 and later serve it under `/api/v1`.
 
 `/version` and `/healthz` are not affected: both servers keep them at the root.
+`get_server_info` asks there first and tries the prefix only when the root route
+is gone, as it will be in Woodpecker 4.0.
 That also means the root path of an instance behind a reverse proxy belongs in
 `WOODPECKER_URL` (`https://example.com/ci`), not here — a prefix of `/ci/api`
 would reach the API but send those two calls to the wrong place.
