@@ -38,6 +38,29 @@ describe('the API client', () => {
     expect(stub.calls[0]?.url).toBe(`${SERVER}/version`);
   });
 
+  it('puts a configured prefix in front of every API path', async () => {
+    const stub = stubFetch(
+      { 'GET /repos/1': { json: { id: 1 } } },
+      `${SERVER}/api/v1`
+    );
+    await new WoodpeckerApi(testConfig({ apiPrefix: '/api/v1' })).get(
+      '/repos/1'
+    );
+    expect(stub.calls[0]?.url).toBe(`${SERVER}/api/v1/repos/1`);
+  });
+
+  it('leaves the root-level calls at the root under a configured prefix', async () => {
+    const stub = stubFetch(
+      { 'GET !/version': { json: { version: '6.10.0' } } },
+      `${SERVER}/api/v1`
+    );
+    await new WoodpeckerApi(testConfig({ apiPrefix: '/api/v1' })).get(
+      '/version',
+      { root: true, anonymous: true }
+    );
+    expect(stub.calls[0]?.url).toBe(`${SERVER}/version`);
+  });
+
   it('sends no token on an anonymous call', async () => {
     const stub = stubFetch({ 'GET !/version': { json: {} } });
     await new WoodpeckerApi(testConfig()).get('/version', {
@@ -83,6 +106,33 @@ describe('the API client', () => {
       UnexpectedContentTypeError
     );
     await expect(api.get('/repos')).rejects.toThrow(/web UI/);
+  });
+
+  it('names the prefix and the full path when an API call gets HTML', async () => {
+    stubFetch(
+      { 'GET /user': { text: '<html></html>', contentType: 'text/html' } },
+      `${SERVER}/api/v1`
+    );
+    const api = new WoodpeckerApi(testConfig({ apiPrefix: '/api/v1' }));
+    const error = await api.get('/user').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UnexpectedContentTypeError);
+    expect((error as Error).message).toContain('/api/v1/user');
+    expect((error as Error).message).toContain('WOODPECKER_API_PREFIX');
+  });
+
+  it('keeps the prefix out of the message for a root-level call', async () => {
+    // get_server_info is the only caller, so pointing at it would be circular.
+    stubFetch({
+      'GET !/version': { text: '<html></html>', contentType: 'text/html' },
+    });
+    const error = await new WoodpeckerApi(testConfig())
+      .get('/version', { root: true, anonymous: true })
+      .catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(UnexpectedContentTypeError);
+    const message = (error as Error).message;
+    expect(message).toContain('answered /version with');
+    expect(message).not.toContain('WOODPECKER_API_PREFIX');
+    expect(message).not.toContain('get_server_info');
   });
 
   it('says "no content type" when the header is missing altogether', async () => {
@@ -135,6 +185,21 @@ describe('the API client', () => {
     await expect(
       new WoodpeckerApi(testConfig()).get('/repos')
     ).rejects.toBeInstanceOf(ResponseTooLargeError);
+  });
+
+  it('names the prefixed path in the size refusal', async () => {
+    stubFetch(
+      {
+        'GET /repos': {
+          json: {},
+          headers: { 'content-length': String(64 * 1024 * 1024) },
+        },
+      },
+      `${SERVER}/api/v1`
+    );
+    await expect(
+      new WoodpeckerApi(testConfig({ apiPrefix: '/api/v1' })).get('/repos')
+    ).rejects.toThrow('/api/v1/repos exceeds');
   });
 
   // The other half of the cap, and the half that matters for logs: a chunked

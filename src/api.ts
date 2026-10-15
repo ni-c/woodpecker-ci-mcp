@@ -79,17 +79,22 @@ function formatLimit(bytes: number): string {
  * can act on, so it is named here instead.
  */
 export class UnexpectedContentTypeError extends Error {
-  constructor(path: string, contentType: string) {
+  /** `prefix` is the API prefix the call went under; absent for a root-level call. */
+  constructor(path: string, contentType: string, prefix?: string) {
     // The header is the instance's — or the proxy's — text, up to the 16 kB
     // a header may carry, control characters included. Cleaned and cut like
     // an error body, because it lands in the same place: the model's context.
     super(
-      `Woodpecker answered ${path} with "${upstreamText(contentType, 80) || 'no content type'}" ` +
+      `Woodpecker answered ${prefix ?? ''}${path} with "${upstreamText(contentType, 80) || 'no content type'}" ` +
         'instead of JSON. Woodpecker serves its web UI from the same origin and ' +
         'falls back to it for unrouted paths, so an HTML answer with HTTP 200 ' +
         'usually means WOODPECKER_URL points at something other than the ' +
-        'Woodpecker server, or at a proxy that intercepted the call. Check ' +
-        'WOODPECKER_URL and try get_server_info.'
+        'Woodpecker server, or at a proxy that intercepted the call. ' +
+        (prefix === undefined
+          ? 'Check WOODPECKER_URL.'
+          : `It can also mean the API is not served under ${prefix} — Crow CI 5 ` +
+            'and later need WOODPECKER_API_PREFIX=/api/v1. Check WOODPECKER_URL ' +
+            'and WOODPECKER_API_PREFIX, and try get_server_info.')
     );
     this.name = 'UnexpectedContentTypeError';
   }
@@ -97,7 +102,7 @@ export class UnexpectedContentTypeError extends Error {
 
 export interface RequestOptions {
   /**
-   * Address the server root instead of the `/api` prefix.
+   * Address the server root instead of the API prefix (`/api` by default).
    *
    * Only `/version` and `/healthz` need it, and they need it badly: the Swagger
    * document lists both under `basePath: "/api"`, but the server registers them
@@ -141,6 +146,10 @@ export class WoodpeckerApi {
     return this.config.url;
   }
 
+  get apiPrefix(): string {
+    return this.config.apiPrefix;
+  }
+
   async requestRaw(
     method: string,
     path: string,
@@ -174,7 +183,8 @@ export class WoodpeckerApi {
       init.body = JSON.stringify(body);
     }
 
-    const url = `${this.config.url ?? ''}${options.root ? '' : '/api'}${path}`;
+    const prefix = options.root ? '' : this.config.apiPrefix;
+    const url = `${this.config.url ?? ''}${prefix}${path}`;
     // The insecure dispatcher requires undici's own fetch; the default path uses
     // the (stubbable) global fetch so tests can intercept it.
     const response = this.insecureDispatcher
@@ -183,8 +193,6 @@ export class WoodpeckerApi {
           dispatcher: this.insecureDispatcher,
         } as UndiciRequestInit)
       : await fetch(url, init);
-
-    const prefix = options.root ? '' : '/api';
 
     // The status decides how the body is read, so it is looked at first. An
     // error body is cut at a small ceiling rather than refused at the large
@@ -229,15 +237,17 @@ export class WoodpeckerApi {
     // UnexpectedContentTypeError. Returning the body would send an HTML document
     // into a list helper, which finds no array and reports an empty result: an
     // error swallowed and replaced with a plausible wrong answer.
+    const prefix = options.root ? undefined : this.config.apiPrefix;
     if (!raw.contentType.includes('application/json')) {
-      throw new UnexpectedContentTypeError(path, raw.contentType);
+      throw new UnexpectedContentTypeError(path, raw.contentType, prefix);
     }
     try {
       return JSON.parse(raw.body) as unknown;
     } catch {
       throw new UnexpectedContentTypeError(
         path,
-        `${raw.contentType} (unparseable)`
+        `${raw.contentType} (unparseable)`,
+        prefix
       );
     }
   }

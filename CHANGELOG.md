@@ -14,7 +14,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **`WOODPECKER_API_PREFIX` points the server at an API that is not under
+  `/api`** — Crow CI 5 and later serve theirs under `/api/v1` (#30). The default
+  stays `/api`, `/version` and `/healthz` stay at the root, and anything but a
+  plain path stops the server at start-up, because the prefix is part of the URL
+  that carries the token. A URL ending in `/api/v1` with the default prefix gets
+  a warning, an HTML answer to an API call names the prefix it went under, and
+  `get_server_info` adds a `note` when the server is Crow — including the hint to
+  set the prefix. Checked against Crow 6.10.0 with the integration suite; the
+  writes that behave differently there are listed in the documentation.
+
 ### Fixed
+
+- **A host named like the API prefix keeps its name.** `WOODPECKER_URL=http://api`
+  was trimmed to `http:/`, because the `/api` suffix was looked for in the whole
+  URL rather than in its path.
 
 - **A `__proto__` key from the instance no longer makes the two channels
   disagree.** The text block kept it, while the client's schema parse of

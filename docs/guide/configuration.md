@@ -29,6 +29,51 @@ it would end up in logs. A URL that is not http or https is refused too. Plain
 http to a non-local host is allowed but warns, because the token then travels in
 the clear.
 
+## Crow CI
+
+[Crow CI](https://crowci.com) is a fork of Woodpecker. Since Crow 5.0 its API
+lives under `/api/v1` instead of `/api`, so point the server at it like this:
+
+```sh
+WOODPECKER_URL=https://crow.example.com
+WOODPECKER_API_PREFIX=/api/v1
+WOODPECKER_TOKEN=…   # a Crow access token
+```
+
+`get_server_info` recognises Crow by the `source` its `/version` reports and
+says so in a `note` — including when the prefix is still missing.
+
+This is a way to reach Crow's API, **not a compatibility promise.** The request
+and answer shapes are Woodpecker 3's; Crow forked before Woodpecker 3.0 and has
+changed since. Checked against Crow 6.10.0 with the integration suite — 69 of
+the 71 tools called, the same two excused as on Woodpecker — every read tool and
+most write tools behave as they do on Woodpecker. These do not:
+
+**Ignored without an error.** Crow accepts fields it does not know and drops
+them, so the call reports success:
+
+- `update_cron` with `enabled` — Crow has an inverted `disabled` field instead,
+  so a cron cannot be paused this way. Delete it, or pause it in Crow's UI.
+- The cron `timezone` — Crow has none and runs every schedule in UTC.
+- `message` on `trigger_pipeline`.
+- `oauth_client_secret` on `create_forge` and `update_forge` — Crow calls the
+  field `client_secret`, so the secret is not set.
+
+**Refused with an error.**
+
+- `update_agent` always fails: Crow wants the agent's `name` and `priority` in
+  every update, and this server has no `priority` to send.
+- `create_user` needs an `email`.
+- `update_forge` needs `type` and `url` in the same call.
+
+**Half done.** `move_repository` answers HTTP 500 ("Failed to update
+permissions") after Crow has already repointed the repository. The forge webhook
+stays on the old repository: run `repair_repository` to install it on the new
+one, and remove the old hook in the forge.
+
+Read back what a write changed. Crow 4 and older still serve `/api` and need no
+prefix.
+
 ## Read-only mode
 
 `WOODPECKER_READ_ONLY=true` registers the 34 read tools and none of the 37 write

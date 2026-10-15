@@ -6,14 +6,56 @@ import { guarded } from '../guard.js';
 import { READ_ONLY } from './annotations.js';
 import { jsonResult, run, sentenceResult } from '../result.js';
 import { confirmTokenParam } from '../schema.js';
+import { DEFAULT_API_PREFIX } from '../config.js';
 import type { ToolContext } from './context.js';
+
+const CROW_DOCS =
+  'https://woodpecker-ci-mcp.ni-c.de/guide/configuration#crow-ci';
+
+/** A fixed hint when `/version` names Crow CI as its source; never upstream text. */
+export function serverNote(
+  version: unknown,
+  apiPrefix: string
+): string | undefined {
+  if (typeof version !== 'object' || version === null) return undefined;
+  const { source, version: number } = version as Record<string, unknown>;
+  if (
+    typeof source !== 'string' ||
+    !/\/crowci\/crow(?:[/.?#]|$)/i.test(source)
+  ) {
+    return undefined;
+  }
+  if (apiPrefix === DEFAULT_API_PREFIX && servesVersionedApi(number)) {
+    return (
+      'This is Crow CI, which serves its API under /api/v1 since 5.0. Set ' +
+      'WOODPECKER_API_PREFIX=/api/v1 — until then every other tool answers ' +
+      `with the web UI instead of the API. See ${CROW_DOCS}.`
+    );
+  }
+  return (
+    'This is Crow CI, a Woodpecker fork, not Woodpecker itself. This server ' +
+    'speaks the Woodpecker 3 API, and against Crow 6.10.0 some writes differ: ' +
+    'Crow silently ignores update_cron enabled, the cron timezone, the ' +
+    'trigger_pipeline message and the forge oauth_client_secret; update_agent ' +
+    'always fails; create_user needs an email and update_forge a type and url; ' +
+    'move_repository answers HTTP 500 after it has already moved the ' +
+    `repository. Read back what a write changed. See ${CROW_DOCS}.`
+  );
+}
+
+function servesVersionedApi(version: unknown): boolean {
+  if (typeof version !== 'string') return false;
+  if (version.startsWith('dev-')) return true;
+  const major = /^v?(\d+)\./.exec(version);
+  return major !== null && Number(major[1]) >= 5;
+}
 
 /**
  * Server state: version, health, queue and log level.
  *
  * `/version` and `/healthz` are the two endpoints that live **outside** the
- * `/api` prefix. The Swagger document lists both under `basePath: "/api"`, but
- * the server registers them one level up — `GET /api/version` falls through to
+ * API prefix (`/api`, or `WOODPECKER_API_PREFIX`). The Swagger document lists
+ * both under `basePath: "/api"`, but the server registers them one level up — `GET /api/version` falls through to
  * the single-page app and returns the web UI with HTTP 200. Verified against
  * 3.18.0; `api.get(..., { root: true })` is what gets it right.
  */
@@ -32,7 +74,12 @@ export function registerServerTools(
         'problem is WOODPECKER_TOKEN.',
       inputSchema: z.object({}),
       annotations: READ_ONLY,
-      outputSchema: plain(),
+      outputSchema: plain({
+        note: z
+          .string()
+          .optional()
+          .describe('Present only when the server is Crow CI.'),
+      }),
     },
     async () =>
       run(async () => {
@@ -48,10 +95,12 @@ export function registerServerTools(
         } catch {
           healthy = false;
         }
+        const note = serverNote(version, api.apiPrefix);
         return jsonResult({
           server: api.serverRoot,
           version,
           healthy,
+          ...(note === undefined ? {} : { note }),
         });
       })
   );

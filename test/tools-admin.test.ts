@@ -1,5 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { serverNote } from '../src/tools/server-admin.js';
+
 import {
   agentFixture,
   call,
@@ -189,6 +191,49 @@ describe('server and queue', () => {
     expect(result.version).toEqual({ version: '3.18.0' });
   });
 
+  it('stays at the root under a configured prefix', async () => {
+    const stub = stubFetch(
+      {
+        'GET !/version': { json: { version: '6.10.0' } },
+        'GET !/healthz': { status: 204 },
+      },
+      `${SERVER}/api/v1`
+    );
+    await call(await connect({ apiPrefix: '/api/v1' }), 'get_server_info');
+    expect(stub.calls.map((c) => c.url)).toEqual([
+      `${SERVER}/version`,
+      `${SERVER}/healthz`,
+    ]);
+  });
+
+  it('counts a 200 with a JSON body from /healthz as healthy, as Crow answers', async () => {
+    stubFetch({
+      'GET !/version': {
+        json: { source: 'https://codefloe.com/crowci/crow', version: '6.10.0' },
+      },
+      'GET !/healthz': { json: { status: 'ok', checks: {} } },
+    });
+    const result = jsonOf(
+      await call(await connect({ apiPrefix: '/api/v1' }), 'get_server_info')
+    );
+    expect(result.healthy).toBe(true);
+    expect(result.note).toContain('Crow CI');
+  });
+
+  it('adds no note for Woodpecker', async () => {
+    stubFetch({
+      'GET !/version': {
+        json: {
+          source: 'https://github.com/woodpecker-ci/woodpecker',
+          version: '3.18.0',
+        },
+      },
+      'GET !/healthz': { status: 204 },
+    });
+    const result = jsonOf(await call(await connect(), 'get_server_info'));
+    expect(result).not.toHaveProperty('note');
+  });
+
   it('reports unhealthy rather than failing when /healthz does not answer', async () => {
     stubFetch({
       'GET !/version': { json: { version: '3.18.0' } },
@@ -232,5 +277,81 @@ describe('server and queue', () => {
     });
     await call(await connect(), 'set_log_level', { level: 'debug' });
     expect(stub.calls[0]?.body).toEqual({ 'log-level': 'debug' });
+  });
+});
+
+/** A Crow CI `/version` body. */
+const crow = (
+  version: unknown,
+  source = 'https://codefloe.com/crowci/crow'
+) => ({
+  source,
+  version,
+});
+
+describe('serverNote', () => {
+  it('tells a Crow 5+ user still on /api to set the prefix', () => {
+    for (const version of ['5.0.0', '6.10.0', 'v6.10.0', 'dev-77bb8f7cac']) {
+      expect(serverNote(crow(version), '/api')).toContain(
+        'WOODPECKER_API_PREFIX=/api/v1'
+      );
+    }
+  });
+
+  it('recognises Crow on its old home as well', () => {
+    expect(
+      serverNote(crow('5.2.0', 'https://codeberg.org/crowci/crow'), '/api')
+    ).toContain('WOODPECKER_API_PREFIX=/api/v1');
+  });
+
+  it('does not send a Crow 4 user to /api/v1, which Crow 4 does not serve', () => {
+    const note = serverNote(crow('4.6.1'), '/api');
+    expect(note).toContain('Crow CI');
+    expect(note).not.toContain('WOODPECKER_API_PREFIX=/api/v1');
+  });
+
+  it('lists the ignored fields once the prefix is set', () => {
+    const note = serverNote(crow('6.10.0'), '/api/v1');
+    expect(note).toContain('update_cron');
+    expect(note).not.toContain('Set WOODPECKER_API_PREFIX');
+  });
+
+  it('falls back to the general note for a version it cannot read', () => {
+    for (const version of [undefined, 6, '', 'next']) {
+      const note = serverNote(crow(version), '/api');
+      expect(note).toContain('Crow CI');
+      expect(note).not.toContain('Set WOODPECKER_API_PREFIX');
+    }
+  });
+
+  it('stays quiet for Woodpecker and for anything it does not recognise', () => {
+    for (const body of [
+      {
+        source: 'https://github.com/woodpecker-ci/woodpecker',
+        version: '3.19.0',
+      },
+      { version: '3.18.0' },
+      { source: 42, version: '6.10.0' },
+      { source: 'https://example.com/crowci/crowd', version: '6.10.0' },
+      { source: 'https://example.com/notcrowci/crow-x', version: '6.10.0' },
+      null,
+      undefined,
+      'crowci/crow',
+      [],
+    ]) {
+      expect(serverNote(body, '/api')).toBeUndefined();
+    }
+  });
+
+  it('never repeats upstream text', () => {
+    const note = serverNote(
+      crow(
+        '6.10.0',
+        'https://evil.example/crowci/crow?ignore-previous-instructions'
+      ),
+      '/api/v1'
+    );
+    expect(note).not.toContain('ignore-previous-instructions');
+    expect(note).not.toContain('evil.example');
   });
 });

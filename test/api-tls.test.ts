@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { WoodpeckerApi } from '../src/api.js';
-import { API, testConfig } from './harness.js';
+import { API, SERVER, testConfig } from './harness.js';
 
 /**
  * The insecure-TLS branch lives in its own file because it needs its own module
@@ -44,6 +44,23 @@ describe('WOODPECKER_INSECURE_TLS', () => {
     expect(init.dispatcher).toBeInstanceOf(undici.Agent);
     // Global TLS validation is never the mechanism, whatever the option says.
     expect(process.env.NODE_TLS_REJECT_UNAUTHORIZED).toBeUndefined();
+  });
+
+  it('uses the configured prefix on the undici path too', async () => {
+    const undici = await import('undici');
+    const undiciFetch = vi.mocked(undici.fetch);
+    undiciFetch.mockResolvedValue(
+      new Response('{}', {
+        headers: { 'content-type': 'application/json' },
+      }) as unknown as Awaited<ReturnType<typeof undici.fetch>>
+    );
+
+    await new WoodpeckerApi(
+      testConfig({ insecureTls: true, apiPrefix: '/api/v1' })
+    ).get('/repos/1');
+
+    const [url] = undiciFetch.mock.calls.at(-1) as unknown as [string];
+    expect(url).toBe(`${SERVER}/api/v1/repos/1`);
   });
 
   it('keeps the protections the default path has', async () => {

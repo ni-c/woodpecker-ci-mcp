@@ -5,6 +5,7 @@ import {
   missingConfigKeys,
   missingConfigMessage,
   normalizeServerRoot,
+  parseApiPrefix,
 } from '../src/config.js';
 
 function env(overrides: Record<string, string | undefined> = {}) {
@@ -225,7 +226,177 @@ describe('loadConfig', () => {
   });
 });
 
+/** Runs `fn` with process.exit stubbed and returns what went to stderr. */
+function refusal(fn: () => unknown): string {
+  const error = vi.spyOn(console, 'error').mockImplementation(() => {});
+  const exit = vi
+    .spyOn(process, 'exit')
+    .mockImplementation(() => undefined as never);
+  expect(fn).toThrow();
+  expect(exit).toHaveBeenCalledWith(1);
+  return error.mock.calls.flat().join(' ');
+}
+
+describe('WOODPECKER_API_PREFIX', () => {
+  it('defaults to /api when unset, empty or only whitespace', () => {
+    expect(loadConfig(env()).apiPrefix).toBe('/api');
+    expect(parseApiPrefix(undefined)).toBe('/api');
+    expect(parseApiPrefix('')).toBe('/api');
+    expect(parseApiPrefix('   ')).toBe('/api');
+    // What a Compose file saved with CRLF line endings hands over.
+    expect(parseApiPrefix('\r')).toBe('/api');
+  });
+
+  it('takes the Crow CI prefix, with or without trailing slashes', () => {
+    expect(
+      loadConfig(env({ WOODPECKER_API_PREFIX: '/api/v1' })).apiPrefix
+    ).toBe('/api/v1');
+    expect(parseApiPrefix('/api/v1/')).toBe('/api/v1');
+    expect(parseApiPrefix('/api/v1///')).toBe('/api/v1');
+    expect(parseApiPrefix(' /api/v1\r')).toBe('/api/v1');
+  });
+
+  it('accepts the unreserved characters and a 64-character prefix', () => {
+    expect(parseApiPrefix('/a.b_c~d-e/V2')).toBe('/a.b_c~d-e/V2');
+    const longest = `/${'a'.repeat(63)}`;
+    expect(parseApiPrefix(longest)).toBe(longest);
+  });
+
+  it.each([
+    ['no leading slash', 'api/v1', 'must start with a slash'],
+    ['a bare slash', '/', 'at least one path segment'],
+    ['only slashes', '///', 'at least one path segment'],
+    ['a protocol-relative host', '//evil.example/api', 'empty segment'],
+    ['an empty segment', '/api//v1', 'empty segment'],
+    ['a dot-dot segment', '/api/../admin', '. or .. segment'],
+    ['a trailing dot-dot', '/api/..', '. or .. segment'],
+    ['a dot segment', '/./api', '. or .. segment'],
+    ['userinfo', '/@evil.example/api', 'may only contain'],
+    ['a port', '/api:8080', 'may only contain'],
+    ['a query', '/api?x=1', 'may only contain'],
+    ['a fragment', '/api#x', 'may only contain'],
+    ['percent-encoding', '/%2e%2e/api', 'may only contain'],
+    ['a backslash', '/api\\v1', 'may only contain'],
+    ['whitespace inside', '/api /v1', 'may only contain'],
+    ['a non-ASCII letter', '/äpi', 'may only contain'],
+    ['a full URL', 'https://evil.example/api', 'must start with a slash'],
+    ['65 characters', `/${'a'.repeat(64)}`, 'at most 64 characters'],
+  ])('refuses %s, naming the rule', (_name, value, rule) => {
+    const output = refusal(() =>
+      loadConfig(env({ WOODPECKER_API_PREFIX: value }))
+    );
+    expect(output).toContain('WOODPECKER_API_PREFIX');
+    expect(output).toContain(rule);
+  });
+
+  it('never echoes a rejected prefix, which may be a mispasted token', () => {
+    const output = refusal(() =>
+      parseApiPrefix(
+        '/eyJhbGciOiJIUzI1NiJ9.c2VjcmV0LXNlY3JldA.signature-secret-value-and-more'
+      )
+    );
+    expect(output).not.toContain('eyJ');
+    expect(output).not.toContain('secret');
+    expect(output).toContain('characters long');
+  });
+
+  it('exits only after the token has left the environment', () => {
+    const environment = env({ WOODPECKER_API_PREFIX: 'api' });
+    refusal(() => loadConfig(environment));
+    expect(environment.WOODPECKER_TOKEN).toBeUndefined();
+  });
+
+  it('is linear on a long run of slashes', () => {
+    const started = performance.now();
+    refusal(() => parseApiPrefix('/'.repeat(200_000)));
+    expect(performance.now() - started).toBeLessThan(200);
+  });
+
+  it('trims the configured prefix off a URL copied from the API', () => {
+    const config = loadConfig(
+      env({
+        WOODPECKER_URL: 'https://crow.example.com/api/v1/',
+        WOODPECKER_API_PREFIX: '/api/v1',
+      })
+    );
+    expect(config.url).toBe('https://crow.example.com');
+  });
+
+  it('warns when the URL ends in a versioned API path and the prefix is /api', () => {
+    for (const overrides of [
+      { WOODPECKER_URL: 'https://crow.example.com/api/v1' },
+      { WOODPECKER_URL: 'https://crow.example.com/api/v1/' },
+      // Set explicitly to the default is just as wrong as unset.
+      {
+        WOODPECKER_URL: 'https://crow.example.com/api/v1',
+        WOODPECKER_API_PREFIX: '/api',
+      },
+    ]) {
+      const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+      loadConfig(env(overrides));
+      expect(warn.mock.calls.flat().join(' ')).toContain(
+        'WOODPECKER_API_PREFIX=/api/v1'
+      );
+      warn.mockRestore();
+    }
+  });
+
+  it('does not warn once the prefix is set, or for an ordinary sub-path', () => {
+    const warn = vi.spyOn(console, 'error').mockImplementation(() => {});
+    loadConfig(
+      env({
+        WOODPECKER_URL: 'https://crow.example.com/api/v1',
+        WOODPECKER_API_PREFIX: '/api/v1',
+      })
+    );
+    loadConfig(env({ WOODPECKER_URL: 'https://example.com/woodpecker' }));
+    loadConfig(env({ WOODPECKER_URL: 'https://example.com/api/version' }));
+    expect(warn.mock.calls.flat().join(' ')).not.toContain(
+      'WOODPECKER_API_PREFIX'
+    );
+  });
+});
+
 describe('normalizeServerRoot', () => {
+  it('never trims into the host', () => {
+    // A host named like the prefix used to lose its name: `http://api` became
+    // `http:/`, and every request went to a host called "version" or "repos".
+    expect(normalizeServerRoot('http://api')).toBe('http://api');
+    expect(normalizeServerRoot('http://api/')).toBe('http://api');
+    expect(normalizeServerRoot('http://api:8000/api')).toBe('http://api:8000');
+    expect(normalizeServerRoot('http://ci', '/ci')).toBe('http://ci');
+  });
+
+  it('trims a custom prefix and keeps the path above it', () => {
+    expect(
+      normalizeServerRoot('https://example.com/ci/api/v1', '/api/v1')
+    ).toBe('https://example.com/ci');
+    expect(normalizeServerRoot('https://example.com/ci', '/api/v1')).toBe(
+      'https://example.com/ci'
+    );
+  });
+
+  it('still trims a plain /api when the prefix is something else', () => {
+    expect(normalizeServerRoot('https://crow.example.com/api', '/api/v1')).toBe(
+      'https://crow.example.com'
+    );
+  });
+
+  it('only trims whole segments', () => {
+    expect(normalizeServerRoot('https://example.com/myapi')).toBe(
+      'https://example.com/myapi'
+    );
+    expect(normalizeServerRoot('https://example.com/x-api/v1', '/api/v1')).toBe(
+      'https://example.com/x-api/v1'
+    );
+  });
+
+  it('does not leave a slash behind the trimmed prefix', () => {
+    expect(normalizeServerRoot('https://example.com/ci//api')).toBe(
+      'https://example.com/ci'
+    );
+  });
+
   it('trims trailing slashes', () => {
     expect(normalizeServerRoot('https://ci.example.com///')).toBe(
       'https://ci.example.com'
@@ -266,5 +437,6 @@ describe('missingConfigMessage', () => {
     expect(message).toContain('WOODPECKER_URL');
     expect(message).toContain('WOODPECKER_TOKEN');
     expect(message).toContain('WOODPECKER_ALLOW_TOOLS');
+    expect(message).toContain('WOODPECKER_API_PREFIX');
   });
 });

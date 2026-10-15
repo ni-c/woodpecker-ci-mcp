@@ -2,7 +2,7 @@
 import type { McpServer } from '@modelcontextprotocol/server';
 import { serveStdio } from '@modelcontextprotocol/server/stdio';
 
-import { loadConfig, missingConfigKeys } from './config.js';
+import { DEFAULT_API_PREFIX, loadConfig, missingConfigKeys } from './config.js';
 import { createServer } from './server.js';
 import { ToolFilterError } from 'mcp-tool-allowlist';
 
@@ -26,6 +26,13 @@ async function main(): Promise<void> {
   if (!config.elicitation) {
     console.error(
       'woodpecker-ci-mcp: ELICITATION=false — guarded tools fall back to the two-call token'
+    );
+  }
+
+  if (config.url && config.apiPrefix !== DEFAULT_API_PREFIX) {
+    console.error(
+      `woodpecker-ci-mcp: WOODPECKER_API_PREFIX=${config.apiPrefix} — API calls go to ` +
+        `${config.url}${config.apiPrefix}, /version and /healthz to ${config.url}`
     );
   }
 
