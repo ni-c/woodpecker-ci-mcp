@@ -5,5 +5,5 @@
     "Read Woodpecker CI pipelines and logs,",
     "and drive builds, secrets and crons"
   ],
-  "badges": ["71 tools", "MIT", "Node ≥22"]
+  "badges": ["71 tools", "MIT"]
 }

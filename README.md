@@ -68,7 +68,7 @@ in the API.
 
 ## Requirements
 
-- Node.js ≥ 22
+- Node.js ≥ 24
 - A **Woodpecker** personal access token — your user settings, "CLI and API".
   There are no scopes: the token carries the full authority of your account.
 
