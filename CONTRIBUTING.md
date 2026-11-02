@@ -65,7 +65,7 @@ produces a pipeline in status `blocked`.
 ## Expectations
 
 - **Tests.** Behaviour changes come with a test that fails without the change.
-  CI runs lint, build and the suite on Node 22 and 24, plus the integration
+  CI runs lint, build and the suite on Node 24 and 26, plus the integration
   suite against a real Woodpecker in Docker, npm audit, CodeQL and a Trivy scan
   of the container image.
 - **Comments** explain constraints the code cannot show — not what the next line does.

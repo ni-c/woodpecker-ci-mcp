@@ -2,7 +2,7 @@
 
 ## Requirements
 
-- Node.js ≥ 22
+- Node.js ≥ 24
 - A Woodpecker server you can reach, and an account on it
 
 ## Get a token
